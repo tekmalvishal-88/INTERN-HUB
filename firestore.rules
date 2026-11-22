@@ -1,0 +1,539 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Pillar 1 / Global Safety Net: Default-deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Reusable Hardened Helpers ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isOwner(userId) {
+      return isVerifiedUser() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isVerifiedUser() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        (request.auth.token.email == 'tekmalvishal26@ifheindia.org' && request.auth.token.email_verified == true)
+      );
+    }
+
+    function isValidString(val, minLen, maxLen) {
+      return val is string && val.size() >= minLen && val.size() <= maxLen;
+    }
+
+    function isValidStringArray(arr, maxItems) {
+      return arr is list && arr.size() <= maxItems && (arr.size() == 0 || arr[0] is string);
+    }
+
+    function isValidMapArray(arr, maxItems) {
+      return arr is list && arr.size() <= maxItems && (arr.size() == 0 || arr[0] is map);
+    }
+
+    // --- Entity Validation Blueprints ---
+    function isValidUserAccount(data) {
+      return data.keys().hasAll(['uid', 'name', 'email', 'activeRole', 'darkMode', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'name', 'email', 'activeRole', 'organization', 'designation', 'darkMode', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.uid == request.auth.uid
+        && isValidString(data.name, 1, 120)
+        && isValidString(data.email, 3, 200)
+        && data.activeRole in ['learner', 'faculty', 'organizer']
+        && (!('organization' in data) || isValidString(data.organization, 0, 140))
+        && (!('designation' in data) || isValidString(data.designation, 0, 140))
+        && data.darkMode is bool
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUserProfile(data) {
+      return data.keys().hasAll([
+          'ownerUid', 'name', 'headline', 'about', 'branch', 'semester', 'college',
+          'cgpa', 'gradYear', 'location', 'skills', 'resumeName', 'resumes', 'projects',
+          'githubUrl', 'linkedinUrl', 'portfolioUrl', 'examStart', 'examEnd', 'targetRole',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'ownerUid', 'name', 'headline', 'about', 'branch', 'semester', 'college',
+          'cgpa', 'gradYear', 'location', 'skills', 'resumeName', 'resumes', 'projects',
+          'githubUrl', 'linkedinUrl', 'portfolioUrl', 'examStart', 'examEnd', 'targetRole',
+          'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.ownerUid)
+        && data.ownerUid == request.auth.uid
+        && isValidString(data.name, 1, 120)
+        && isValidString(data.headline, 0, 220)
+        && isValidString(data.about, 0, 1500)
+        && isValidString(data.branch, 1, 120)
+        && data.semester is int && data.semester >= 1 && data.semester <= 10
+        && isValidString(data.college, 0, 160)
+        && isValidString(data.cgpa, 0, 40)
+        && isValidString(data.gradYear, 0, 16)
+        && isValidString(data.location, 0, 120)
+        && isValidStringArray(data.skills, 30)
+        && isValidString(data.resumeName, 0, 180)
+        && isValidMapArray(data.resumes, 15)
+        && isValidMapArray(data.projects, 20)
+        && isValidString(data.githubUrl, 0, 300)
+        && isValidString(data.linkedinUrl, 0, 300)
+        && isValidString(data.portfolioUrl, 0, 300)
+        && isValidString(data.examStart, 0, 20)
+        && isValidString(data.examEnd, 0, 20)
+        && isValidString(data.targetRole, 0, 140)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidApplication(data) {
+      return data.keys().hasAll([
+          'ownerUid', 'opportunityId', 'company', 'roleTitle', 'location',
+          'applicantEmail', 'applicantName', 'stage', 'appliedOn', 'isExternal',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'ownerUid', 'opportunityId', 'company', 'roleTitle', 'location',
+          'applicantEmail', 'applicantName', 'applicantBranch', 'applicantSemester',
+          'applicantSkills', 'resumeUsed', 'stage', 'appliedOn', 'nextAction',
+          'notes', 'isExternal', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.ownerUid)
+        && data.ownerUid == request.auth.uid
+        && isValidString(data.opportunityId, 1, 128)
+        && isValidString(data.company, 1, 140)
+        && isValidString(data.roleTitle, 1, 160)
+        && isValidString(data.location, 1, 120)
+        && isValidString(data.applicantEmail, 3, 200)
+        && isValidString(data.applicantName, 1, 120)
+        && (!('applicantBranch' in data) || isValidString(data.applicantBranch, 0, 120))
+        && (!('applicantSemester' in data) || (data.applicantSemester is int && data.applicantSemester >= 1 && data.applicantSemester <= 10))
+        && (!('applicantSkills' in data) || isValidStringArray(data.applicantSkills, 30))
+        && (!('resumeUsed' in data) || isValidString(data.resumeUsed, 0, 180))
+        && data.stage in ['Applied', 'Shortlisted', 'Recruiter Call', 'Phone Screen', 'Selected', 'Rejected']
+        && isValidString(data.appliedOn, 4, 20)
+        && (!('nextAction' in data) || isValidString(data.nextAction, 0, 300))
+        && (!('notes' in data) || isValidString(data.notes, 0, 1000))
+        && data.isExternal is bool
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidLeaveRequest(data) {
+      return data.keys().hasAll([
+          'ownerUid', 'studentName', 'rollNumber', 'studentEmail', 'branch',
+          'semester', 'leaveType', 'companyOrEvent', 'startDate', 'endDate',
+          'timingNote', 'reason', 'submittedOn', 'status', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'ownerUid', 'studentName', 'rollNumber', 'studentEmail', 'branch',
+          'semester', 'leaveType', 'companyOrEvent', 'startDate', 'endDate',
+          'timingNote', 'reason', 'submittedOn', 'status', 'digitalSignature',
+          'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.ownerUid)
+        && isValidString(data.studentName, 1, 120)
+        && isValidString(data.rollNumber, 1, 40)
+        && isValidString(data.studentEmail, 3, 200)
+        && isValidString(data.branch, 1, 120)
+        && data.semester is int && data.semester >= 1 && data.semester <= 10
+        && data.leaveType in ['Internship Joining', 'On-Duty (Hackathon/Event)', 'Interview / Assessment', 'Academic Leave']
+        && isValidString(data.companyOrEvent, 1, 180)
+        && isValidString(data.startDate, 4, 20)
+        && isValidString(data.endDate, 4, 20)
+        && isValidString(data.timingNote, 0, 160)
+        && isValidString(data.reason, 1, 1000)
+        && isValidString(data.submittedOn, 4, 20)
+        && data.status in ['Pending', 'Approved', 'Rejected']
+        && (!('digitalSignature' in data) || data.digitalSignature is map)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidNocRequest(data) {
+      return data.keys().hasAll([
+          'ownerUid', 'nocNumber', 'studentName', 'rollNumber', 'studentEmail',
+          'branch', 'semester', 'companyName', 'roleTitle', 'workMode', 'location',
+          'stipendLabel', 'internshipStart', 'internshipEnd', 'dailyTiming',
+          'hrContactName', 'hrContactEmail', 'parentSigned', 'submittedOn',
+          'status', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'ownerUid', 'nocNumber', 'studentName', 'rollNumber', 'studentEmail',
+          'branch', 'semester', 'companyName', 'roleTitle', 'workMode', 'location',
+          'stipendLabel', 'internshipStart', 'internshipEnd', 'dailyTiming',
+          'hrContactName', 'hrContactEmail', 'offerLetterName', 'parentConsentId',
+          'parentSigned', 'academicRemarks', 'submittedOn', 'status',
+          'facultySignature', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.ownerUid)
+        && isValidString(data.nocNumber, 3, 80)
+        && isValidString(data.studentName, 1, 120)
+        && isValidString(data.rollNumber, 1, 40)
+        && isValidString(data.studentEmail, 3, 200)
+        && isValidString(data.branch, 1, 120)
+        && data.semester is int && data.semester >= 1 && data.semester <= 10
+        && isValidString(data.companyName, 1, 160)
+        && isValidString(data.roleTitle, 1, 160)
+        && data.workMode in ['Remote', 'On-site', 'Hybrid']
+        && isValidString(data.location, 1, 120)
+        && isValidString(data.stipendLabel, 1, 80)
+        && isValidString(data.internshipStart, 4, 20)
+        && isValidString(data.internshipEnd, 4, 20)
+        && isValidString(data.dailyTiming, 1, 140)
+        && isValidString(data.hrContactName, 0, 120)
+        && isValidString(data.hrContactEmail, 0, 200)
+        && (!('offerLetterName' in data) || isValidString(data.offerLetterName, 0, 180))
+        && (!('parentConsentId' in data) || isValidString(data.parentConsentId, 0, 128))
+        && data.parentSigned is bool
+        && (!('academicRemarks' in data) || isValidString(data.academicRemarks, 0, 600))
+        && isValidString(data.submittedOn, 4, 20)
+        && data.status in ['Pending', 'Approved', 'Rejected']
+        && (!('facultySignature' in data) || data.facultySignature is map)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidParentConsent(data) {
+      return data.keys().hasAll([
+          'ownerUid', 'consentCode', 'studentName', 'rollNumber', 'studentEmail',
+          'branch', 'semester', 'parentName', 'relationship', 'parentPhone',
+          'parentEmail', 'emergencyContact', 'companyOrEvent', 'internshipLocation',
+          'workMode', 'startDate', 'endDate', 'travelAndStayConfirmed',
+          'medicalInsuranceConfirmed', 'academicAttendanceUnderstood',
+          'parentSignatureDataUrl', 'signedOn', 'facultyVerified',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'ownerUid', 'consentCode', 'studentName', 'rollNumber', 'studentEmail',
+          'branch', 'semester', 'parentName', 'relationship', 'parentPhone',
+          'parentEmail', 'emergencyContact', 'companyOrEvent', 'internshipLocation',
+          'workMode', 'startDate', 'endDate', 'travelAndStayConfirmed',
+          'medicalInsuranceConfirmed', 'academicAttendanceUnderstood',
+          'parentSignatureDataUrl', 'signedOn', 'facultyVerified',
+          'verifiedBy', 'verifiedOn', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.ownerUid)
+        && isValidString(data.consentCode, 3, 80)
+        && isValidString(data.studentName, 1, 120)
+        && isValidString(data.rollNumber, 1, 40)
+        && isValidString(data.studentEmail, 3, 200)
+        && isValidString(data.branch, 1, 120)
+        && data.semester is int && data.semester >= 1 && data.semester <= 10
+        && isValidString(data.parentName, 1, 120)
+        && data.relationship in ['Father', 'Mother', 'Legal Guardian']
+        && isValidString(data.parentPhone, 3, 40)
+        && isValidString(data.parentEmail, 0, 200)
+        && isValidString(data.emergencyContact, 3, 40)
+        && isValidString(data.companyOrEvent, 1, 180)
+        && isValidString(data.internshipLocation, 1, 140)
+        && data.workMode in ['Remote', 'On-site', 'Hybrid']
+        && isValidString(data.startDate, 4, 20)
+        && isValidString(data.endDate, 4, 20)
+        && data.travelAndStayConfirmed is bool
+        && data.medicalInsuranceConfirmed is bool
+        && data.academicAttendanceUnderstood is bool
+        && isValidString(data.parentSignatureDataUrl, 10, 250000)
+        && isValidString(data.signedOn, 4, 20)
+        && data.facultyVerified is bool
+        && (!('verifiedBy' in data) || isValidString(data.verifiedBy, 0, 120))
+        && (!('verifiedOn' in data) || isValidString(data.verifiedOn, 0, 20))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidStudentSchedule(data) {
+      return data.keys().hasAll([
+          'ownerUid', 'studentName', 'rollNumber', 'email', 'branch', 'semester',
+          'internshipCompany', 'internshipRole', 'internshipTiming',
+          'internshipStart', 'internshipEnd', 'upcomingEvent', 'eventDate',
+          'eventTiming', 'examWindow', 'attendanceStatus', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'ownerUid', 'studentName', 'rollNumber', 'email', 'branch', 'semester',
+          'internshipCompany', 'internshipRole', 'internshipTiming',
+          'internshipStart', 'internshipEnd', 'upcomingEvent', 'eventDate',
+          'eventTiming', 'extraEvents', 'examWindow', 'attendanceStatus',
+          'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.ownerUid)
+        && data.ownerUid == request.auth.uid
+        && isValidString(data.studentName, 1, 120)
+        && isValidString(data.rollNumber, 1, 40)
+        && isValidString(data.email, 3, 200)
+        && isValidString(data.branch, 1, 120)
+        && data.semester is int && data.semester >= 1 && data.semester <= 10
+        && isValidString(data.internshipCompany, 1, 140)
+        && isValidString(data.internshipRole, 1, 160)
+        && isValidString(data.internshipTiming, 1, 160)
+        && isValidString(data.internshipStart, 4, 20)
+        && isValidString(data.internshipEnd, 4, 20)
+        && isValidString(data.upcomingEvent, 0, 180)
+        && isValidString(data.eventDate, 0, 20)
+        && isValidString(data.eventTiming, 0, 120)
+        && (!('extraEvents' in data) || isValidMapArray(data.extraEvents, 20))
+        && isValidString(data.examWindow, 0, 120)
+        && data.attendanceStatus in ['On Track', 'Leave Approved', 'Event OD', 'Needs Review']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidOpportunity(data) {
+      return data.keys().hasAll([
+          'title', 'company', 'type', 'domain', 'mode', 'location', 'stipend',
+          'durationLabel', 'deadline', 'startDate', 'endDate', 'skills',
+          'minSemester', 'description', 'sourcePlatform', 'officialUrl',
+          'ownerOrg', 'verified', 'createdByUid', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'title', 'company', 'type', 'domain', 'mode', 'location', 'stipend',
+          'stipendLabel', 'durationLabel', 'deadline', 'startDate', 'endDate',
+          'skills', 'minSemester', 'description', 'sourcePlatform', 'officialUrl',
+          'ownerOrg', 'verified', 'createdByUid', 'createdAt', 'updatedAt'
+        ])
+        && isValidString(data.title, 1, 160)
+        && isValidString(data.company, 1, 140)
+        && data.type in ['Internship', 'Hackathon', 'Job']
+        && data.domain in ['Software', 'Data', 'Design', 'Electronics', 'Marketing']
+        && data.mode in ['Remote', 'On-site', 'Hybrid']
+        && isValidString(data.location, 1, 140)
+        && data.stipend is number && data.stipend >= 0
+        && (!('stipendLabel' in data) || isValidString(data.stipendLabel, 0, 80))
+        && isValidString(data.durationLabel, 1, 80)
+        && isValidString(data.deadline, 4, 20)
+        && isValidString(data.startDate, 4, 20)
+        && isValidString(data.endDate, 4, 20)
+        && isValidStringArray(data.skills, 12)
+        && data.minSemester is int && data.minSemester >= 1 && data.minSemester <= 10
+        && isValidString(data.description, 1, 1200)
+        && isValidString(data.sourcePlatform, 1, 120)
+        && isValidString(data.officialUrl, 1, 400)
+        && isValidString(data.ownerOrg, 1, 140)
+        && data.verified is bool
+        && isValidId(data.createdByUid)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // --- Admin & Connection Check ---
+    match /admins/{adminId} {
+      allow get: if isVerifiedUser() && isValidId(adminId) && request.auth.uid == adminId;
+      allow list, write: if false;
+    }
+
+    match /test/{testDocId} {
+      allow get: if isSignedIn() && isValidId(testDocId);
+      allow list, write: if false;
+    }
+
+    // --- Per-User Isolated Database Partition (/users/{userId}/...) ---
+    match /users/{userId} {
+      allow get: if (isOwner(userId) || isAdmin()) && isValidId(userId);
+      allow list: if isAdmin();
+      allow create: if isOwner(userId)
+        && isValidId(userId)
+        && isValidUserAccount(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isOwner(userId)
+        && isValidId(userId)
+        && isValidUserAccount(incoming())
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'email', 'activeRole', 'organization', 'designation', 'darkMode', 'updatedAt']);
+      allow delete: if false;
+
+      match /profile/{docId} {
+        allow get: if isOwner(userId) && isValidId(docId);
+        allow list: if isOwner(userId) && existing().ownerUid == request.auth.uid;
+        allow create: if isOwner(userId)
+          && isValidId(docId)
+          && isValidUserProfile(incoming())
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isOwner(userId)
+          && isValidId(docId)
+          && isValidUserProfile(incoming())
+          && incoming().ownerUid == existing().ownerUid
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'name', 'headline', 'about', 'branch', 'semester', 'college',
+            'cgpa', 'gradYear', 'location', 'skills', 'resumeName', 'resumes',
+            'projects', 'githubUrl', 'linkedinUrl', 'portfolioUrl',
+            'examStart', 'examEnd', 'targetRole', 'updatedAt'
+          ]);
+        allow delete: if isOwner(userId) && isValidId(docId);
+      }
+
+      match /applications/{applicationId} {
+        allow get: if isOwner(userId) && isValidId(applicationId);
+        allow list: if isOwner(userId) && existing().ownerUid == request.auth.uid;
+        allow create: if isOwner(userId)
+          && isValidId(applicationId)
+          && isValidApplication(incoming())
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isOwner(userId)
+          && isValidId(applicationId)
+          && isValidApplication(incoming())
+          && incoming().ownerUid == existing().ownerUid
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['stage', 'resumeUsed', 'nextAction', 'notes', 'updatedAt']);
+        allow delete: if isOwner(userId) && isValidId(applicationId);
+      }
+
+      match /leaveRequests/{leaveId} {
+        allow get: if (isOwner(userId) || isAdmin()) && isValidId(leaveId);
+        allow list: if isOwner(userId) && existing().ownerUid == request.auth.uid;
+        allow create: if isOwner(userId)
+          && isValidId(leaveId)
+          && isValidLeaveRequest(incoming())
+          && incoming().ownerUid == request.auth.uid
+          && incoming().status == 'Pending'
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isVerifiedUser()
+          && isValidId(leaveId)
+          && isValidLeaveRequest(incoming())
+          && incoming().ownerUid == existing().ownerUid
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && (
+            (isOwner(userId)
+              && existing().status == 'Pending'
+              && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'digitalSignature', 'timingNote', 'reason', 'updatedAt'])) ||
+            (isAdmin()
+              && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'digitalSignature', 'updatedAt']))
+          );
+        allow delete: if isOwner(userId) && isValidId(leaveId) && existing().status == 'Pending';
+      }
+
+      match /nocRequests/{nocId} {
+        allow get: if (isOwner(userId) || isAdmin()) && isValidId(nocId);
+        allow list: if isOwner(userId) && existing().ownerUid == request.auth.uid;
+        allow create: if isOwner(userId)
+          && isValidId(nocId)
+          && isValidNocRequest(incoming())
+          && incoming().ownerUid == request.auth.uid
+          && incoming().status == 'Pending'
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isVerifiedUser()
+          && isValidId(nocId)
+          && isValidNocRequest(incoming())
+          && incoming().ownerUid == existing().ownerUid
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && (
+            (isOwner(userId)
+              && existing().status == 'Pending'
+              && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'facultySignature', 'academicRemarks', 'updatedAt'])) ||
+            (isAdmin()
+              && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'facultySignature', 'updatedAt']))
+          );
+        allow delete: if isOwner(userId) && isValidId(nocId) && existing().status == 'Pending';
+      }
+
+      match /parentConsents/{consentId} {
+        allow get: if (isOwner(userId) || isAdmin()) && isValidId(consentId);
+        allow list: if isOwner(userId) && existing().ownerUid == request.auth.uid;
+        allow create: if isOwner(userId)
+          && isValidId(consentId)
+          && isValidParentConsent(incoming())
+          && incoming().ownerUid == request.auth.uid
+          && incoming().facultyVerified == false
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isVerifiedUser()
+          && isValidId(consentId)
+          && isValidParentConsent(incoming())
+          && incoming().ownerUid == existing().ownerUid
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && (
+            (isOwner(userId)
+              && existing().facultyVerified == false
+              && incoming().diff(existing()).affectedKeys().hasOnly(['facultyVerified', 'verifiedBy', 'verifiedOn', 'updatedAt'])) ||
+            (isAdmin()
+              && incoming().diff(existing()).affectedKeys().hasOnly(['facultyVerified', 'verifiedBy', 'verifiedOn', 'updatedAt']))
+          );
+        allow delete: if isOwner(userId) && isValidId(consentId) && existing().facultyVerified == false;
+      }
+
+      match /studentSchedules/{scheduleId} {
+        allow get: if isOwner(userId) && isValidId(scheduleId);
+        allow list: if isOwner(userId) && existing().ownerUid == request.auth.uid;
+        allow create: if isOwner(userId)
+          && isValidId(scheduleId)
+          && isValidStudentSchedule(incoming())
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isOwner(userId)
+          && isValidId(scheduleId)
+          && isValidStudentSchedule(incoming())
+          && incoming().ownerUid == existing().ownerUid
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'internshipCompany', 'internshipRole', 'internshipTiming',
+            'internshipStart', 'internshipEnd', 'upcomingEvent',
+            'eventDate', 'eventTiming', 'extraEvents', 'attendanceStatus', 'updatedAt'
+          ]);
+        allow delete: if isOwner(userId) && isValidId(scheduleId);
+      }
+    }
+
+    // --- Shared Live-Updating Opportunity Hub Collection ---
+    match /opportunities/{opportunityId} {
+      allow get: if isVerifiedUser() && isValidId(opportunityId);
+      allow list: if isVerifiedUser() && existing().verified == true;
+      allow create: if isVerifiedUser()
+        && isValidId(opportunityId)
+        && isValidOpportunity(incoming())
+        && incoming().createdByUid == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser()
+        && isValidId(opportunityId)
+        && isValidOpportunity(incoming())
+        && incoming().createdByUid == existing().createdByUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin() ||
+          (existing().createdByUid == request.auth.uid
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'title', 'company', 'type', 'domain', 'mode', 'location',
+              'stipend', 'stipendLabel', 'durationLabel', 'deadline',
+              'startDate', 'endDate', 'skills', 'minSemester', 'description',
+              'sourcePlatform', 'officialUrl', 'ownerOrg', 'verified', 'updatedAt'
+            ]))
+        );
+      allow delete: if isVerifiedUser()
+        && isValidId(opportunityId)
+        && (existing().createdByUid == request.auth.uid || isAdmin());
+    }
+  }
+}

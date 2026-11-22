@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { onAuthStateChanged, signOut, type User as FirebaseUser } from 'firebase/auth';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   BarChart3,
@@ -65,6 +66,27 @@ import { FacultyWorkspace } from './components/FacultyWorkspace';
 import { AiAssistantDrawer } from './components/AiAssistantDrawer';
 import { GoogleVAvatar } from './components/GoogleVAvatar';
 import { OfflineIndicator, PWAInstallButton } from './components/PWAInstallButton';
+import { auth, testFirestoreConnection } from './lib/firebase';
+import {
+  createUserLeaveRequest,
+  createUserNocRequest,
+  createUserParentConsent,
+  createUserStudentSchedule,
+  ensureUserWorkspace,
+  publishOpportunityToHub,
+  saveUserApplication,
+  saveUserProfile,
+  seedOpportunitiesIfEmpty,
+  signUserLeaveRequest,
+  signUserNocRequest,
+  subscribeToOpportunities,
+  subscribeToUserWorkspace,
+  syncLiveOpportunityHub,
+  updateUserAccountPrefs,
+  updateUserApplication,
+  updateUserStudentSchedule,
+  verifyUserParentConsent,
+} from './lib/firestoreStore';
 
 const STORAGE_KEY = 'internhub_state_v5';
 
@@ -170,6 +192,14 @@ export default function App() {
   const [aiOpen, setAiOpen] = useState(false);
   const [aiInitialPrompt, setAiInitialPrompt] = useState<string | undefined>(undefined);
   const [toast, setToast] = useState<string | null>(null);
+  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
+  const [isSyncingHub, setIsSyncingHub] = useState(false);
+  const [fatalDbError, setFatalDbError] = useState<Error | null>(null);
+  const preferredRoleRef = useRef<UserRole>('learner');
+
+  if (fatalDbError) {
+    throw fatalDbError;
+  }
 
   const [roleAccounts, setRoleAccounts] = useState<Record<UserRole, UserAccount>>(() => ({
     learner:
@@ -246,6 +276,85 @@ export default function App() {
     setTimeout(() => setToast(null), 3200);
   };
 
+  useEffect(() => {
+    void testFirestoreConnection();
+    let unsubUserWs: (() => void) | null = null;
+    let unsubOpps: (() => void) | null = null;
+    let hubInterval: ReturnType<typeof setInterval> | null = null;
+
+    const unsubAuth = onAuthStateChanged(auth, async (fbUser) => {
+      if (unsubUserWs) {
+        unsubUserWs();
+        unsubUserWs = null;
+      }
+      if (unsubOpps) {
+        unsubOpps();
+        unsubOpps = null;
+      }
+      if (hubInterval) {
+        clearInterval(hubInterval);
+        hubInterval = null;
+      }
+
+      setFirebaseUser(fbUser);
+
+      if (!fbUser) {
+        return;
+      }
+
+      try {
+        const { account, darkMode: savedDark, isNewWorkspace } = await ensureUserWorkspace(
+          fbUser,
+          preferredRoleRef.current,
+          darkMode
+        );
+        setUser(account);
+        setDarkMode(savedDark);
+        setRoleAccounts((prev) => ({ ...prev, [account.role]: account }));
+
+        unsubUserWs = subscribeToUserWorkspace(
+          fbUser.uid,
+          {
+            onProfile: (p) => setProfile(p),
+            onApplications: (apps) => setApplications(apps),
+            onLeaves: (lvs) => setLeaveRequests(lvs),
+            onNocs: (nocs) => setNocRequests(nocs),
+            onParentConsents: (sheets) => setParentConsents(sheets),
+            onSchedules: (stus) => setStudentSchedules(stus),
+          },
+          (err) => setFatalDbError(err)
+        );
+
+        await seedOpportunitiesIfEmpty(fbUser.uid);
+
+        unsubOpps = subscribeToOpportunities(
+          (liveOpps) => setOpportunities(liveOpps),
+          (err) => setFatalDbError(err)
+        );
+
+        await syncLiveOpportunityHub(fbUser.uid, INITIAL_OPPORTUNITIES);
+
+        hubInterval = setInterval(() => {
+          void syncLiveOpportunityHub(fbUser.uid, []);
+        }, 5 * 60 * 1000);
+
+        if (isNewWorkspace) {
+          showToast(`Created your personal InternHub workspace for ${account.email}`);
+        }
+      } catch (err) {
+        setFatalDbError(err instanceof Error ? err : new Error('Failed to load workspace'));
+      }
+    });
+
+    return () => {
+      unsubAuth();
+      if (unsubUserWs) unsubUserWs();
+      if (unsubOpps) unsubOpps();
+      if (hubInterval) clearInterval(hubInterval);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleAuthenticate = (
     account: UserAccount,
     setupDetails?: { branch?: string; semester?: number; college?: string }
@@ -277,8 +386,29 @@ export default function App() {
     if (user) {
       setRoleAccounts((prev) => ({ ...prev, [user.role]: user }));
     }
-    const targetAccount = roleAccounts[nextRole];
-    setUser(targetAccount);
+    if (firebaseUser) {
+      const updatedAccount: UserAccount = {
+        ...(user || roleAccounts[nextRole]),
+        id: firebaseUser.uid,
+        name: profile.name || firebaseUser.displayName || user?.name || 'InternHub User',
+        email: firebaseUser.email || user?.email || '',
+        role: nextRole,
+        organization:
+          nextRole === 'organizer'
+            ? roleAccounts.organizer.organization || 'Campus Partner'
+            : roleAccounts.faculty.organization || 'IFHE Hyderabad · CSE Dept',
+        designation:
+          nextRole === 'faculty'
+            ? 'Faculty Placement & Leave Coordinator'
+            : undefined,
+        verified: true,
+      };
+      setUser(updatedAccount);
+      void updateUserAccountPrefs(firebaseUser.uid, { activeRole: nextRole });
+    } else {
+      const targetAccount = roleAccounts[nextRole];
+      setUser(targetAccount);
+    }
     setNotificationsOpen(false);
     setMobileMenuOpen(false);
     if (nextRole === 'learner') {
@@ -320,6 +450,9 @@ export default function App() {
       nextAction: `Submitted with ${chosenResume}`,
     };
     setApplications((prev) => [newApp, ...prev]);
+    if (firebaseUser) {
+      void saveUserApplication(firebaseUser.uid, newApp);
+    }
     showToast(`Applied to ${opp.company} · ${opp.title}`);
   };
 
@@ -327,6 +460,9 @@ export default function App() {
     setApplications((prev) =>
       prev.map((a) => (a.id === appId ? { ...a, stage: nextStage } : a))
     );
+    if (firebaseUser) {
+      void updateUserApplication(firebaseUser.uid, appId, { stage: nextStage });
+    }
     showToast(`Updated application stage to ${nextStage}`);
   };
 
@@ -334,6 +470,9 @@ export default function App() {
     setApplications((prev) =>
       prev.map((a) => (a.id === appId ? { ...a, resumeUsed: resumeName } : a))
     );
+    if (firebaseUser) {
+      void updateUserApplication(firebaseUser.uid, appId, { resumeUsed: resumeName });
+    }
     showToast(`Attached ${resumeName}`);
   };
 
@@ -361,6 +500,9 @@ export default function App() {
       isExternal: true,
     };
     setApplications((prev) => [newApp, ...prev]);
+    if (firebaseUser) {
+      void saveUserApplication(firebaseUser.uid, newApp);
+    }
     showToast(`Added ${payload.company} to tracker`);
   };
 
@@ -373,11 +515,15 @@ export default function App() {
       sizeLabel: '230 KB',
       isDefault: true,
     };
-    setProfile((prev) => ({
-      ...prev,
+    const nextProfile: StudentProfile = {
+      ...profile,
       resumeName: fileName,
-      resumes: [newItem, ...prev.resumes.map((r) => ({ ...r, isDefault: false }))],
-    }));
+      resumes: [newItem, ...profile.resumes.map((r) => ({ ...r, isDefault: false }))],
+    };
+    setProfile(nextProfile);
+    if (firebaseUser) {
+      void saveUserProfile(firebaseUser.uid, nextProfile);
+    }
     showToast(`Added resume: ${fileName}`);
   };
 
@@ -386,47 +532,77 @@ export default function App() {
   };
 
   const handleSetDefaultResume = (resumeId: string) => {
-    setProfile((prev) => {
-      const target = prev.resumes.find((r) => r.id === resumeId);
-      if (!target) return prev;
-      return {
-        ...prev,
-        resumeName: target.name,
-        resumes: prev.resumes.map((r) => ({ ...r, isDefault: r.id === resumeId })),
-      };
-    });
+    const target = profile.resumes.find((r) => r.id === resumeId);
+    if (!target) return;
+    const nextProfile: StudentProfile = {
+      ...profile,
+      resumeName: target.name,
+      resumes: profile.resumes.map((r) => ({ ...r, isDefault: r.id === resumeId })),
+    };
+    setProfile(nextProfile);
+    if (firebaseUser) {
+      void saveUserProfile(firebaseUser.uid, nextProfile);
+    }
     showToast('Default resume updated');
   };
 
   const handleDeleteResume = (resumeId: string) => {
-    setProfile((prev) => {
-      if (prev.resumes.length <= 1) return prev;
-      const remaining = prev.resumes.filter((r) => r.id !== resumeId);
-      const hasDefault = remaining.some((r) => r.isDefault);
-      const normalized = hasDefault
-        ? remaining
-        : remaining.map((r, i) => ({ ...r, isDefault: i === 0 }));
-      const nextDefault = normalized.find((r) => r.isDefault)?.name || normalized[0].name;
-      return {
-        ...prev,
-        resumeName: nextDefault,
-        resumes: normalized,
-      };
-    });
+    if (profile.resumes.length <= 1) return;
+    const remaining = profile.resumes.filter((r) => r.id !== resumeId);
+    const hasDefault = remaining.some((r) => r.isDefault);
+    const normalized = hasDefault
+      ? remaining
+      : remaining.map((r, i) => ({ ...r, isDefault: i === 0 }));
+    const nextDefault = normalized.find((r) => r.isDefault)?.name || normalized[0].name;
+    const nextProfile: StudentProfile = {
+      ...profile,
+      resumeName: nextDefault,
+      resumes: normalized,
+    };
+    setProfile(nextProfile);
+    if (firebaseUser) {
+      void saveUserProfile(firebaseUser.uid, nextProfile);
+    }
     showToast('Removed resume from vault');
   };
 
   const handleAddSkill = (skill: string) => {
-    setProfile((prev) => {
-      if (prev.skills.some((s) => s.toLowerCase() === skill.toLowerCase())) return prev;
-      return { ...prev, skills: [...prev.skills, skill] };
-    });
+    if (profile.skills.some((s) => s.toLowerCase() === skill.toLowerCase())) return;
+    const nextProfile: StudentProfile = {
+      ...profile,
+      skills: [...profile.skills, skill],
+    };
+    setProfile(nextProfile);
+    if (firebaseUser) {
+      void saveUserProfile(firebaseUser.uid, nextProfile);
+    }
     showToast(`Added "${skill}" to your profile skills`);
   };
 
   const handlePublishOpportunity = (opp: Opportunity) => {
     setOpportunities((prev) => [opp, ...prev]);
-    showToast(`Published ${opp.title} to Opportunity Hub`);
+    if (firebaseUser) {
+      void publishOpportunityToHub(firebaseUser.uid, opp);
+    }
+    showToast(`Published ${opp.title} to live Opportunity Hub`);
+  };
+
+  const handleRefreshOpportunityHub = async () => {
+    setIsSyncingHub(true);
+    try {
+      if (firebaseUser) {
+        const count = await syncLiveOpportunityHub(firebaseUser.uid, opportunities);
+        showToast(
+          count > 0
+            ? `Synced ${count} new & updated opportunities in Opportunity Hub`
+            : 'Opportunity Hub is up to date with the latest live roles'
+        );
+      } else {
+        showToast('Opportunity Hub refreshed');
+      }
+    } finally {
+      setIsSyncingHub(false);
+    }
   };
 
   const handleSubmitLeaveRequest = (payload: {
@@ -455,6 +631,9 @@ export default function App() {
       status: 'Pending',
     };
     setLeaveRequests((prev) => [newLeave, ...prev]);
+    if (firebaseUser) {
+      void createUserLeaveRequest(firebaseUser.uid, newLeave);
+    }
     showToast('Leave request sent to Faculty Coordinator for digital signature');
   };
 
@@ -469,35 +648,44 @@ export default function App() {
     }
   ) => {
     const code = `IH-FAC-2026-${Math.floor(1000 + Math.random() * 9000)}`;
+    const sigRecord = {
+      signerName: signature.signerName,
+      signerDesignation: signature.signerDesignation,
+      signatureDataUrl: signature.signatureDataUrl,
+      signedAt: todayIso(),
+      verificationCode: code,
+      remarks: signature.remarks,
+    };
     setLeaveRequests((prev) =>
       prev.map((lv) =>
         lv.id === requestId
           ? {
               ...lv,
               status: decision,
-              digitalSignature: {
-                signerName: signature.signerName,
-                signerDesignation: signature.signerDesignation,
-                signatureDataUrl: signature.signatureDataUrl,
-                signedAt: todayIso(),
-                verificationCode: code,
-                remarks: signature.remarks,
-              },
+              digitalSignature: sigRecord,
             }
           : lv
       )
     );
+    if (firebaseUser) {
+      void signUserLeaveRequest(firebaseUser.uid, requestId, decision, sigRecord);
+    }
     showToast(`Leave ${decision.toLowerCase()} with digital signature (${code})`);
   };
 
   const handleAddStudentSchedule = (student: Omit<StudentScheduleRecord, 'id'>) => {
     const rec: StudentScheduleRecord = { ...student, id: `stu-${Date.now()}` };
     setStudentSchedules((prev) => [rec, ...prev]);
+    if (firebaseUser) {
+      void createUserStudentSchedule(firebaseUser.uid, rec);
+    }
     showToast(`Added ${student.studentName} to student roster`);
   };
 
   const handleAddStudentEvent = (studentId: string, event: Omit<StudentEventItem, 'id'>) => {
     const newEv: StudentEventItem = { ...event, id: `ev-${Date.now()}` };
+    const targetStu = studentSchedules.find((s) => s.id === studentId);
+    const nextExtraEvents = [...(targetStu?.extraEvents ?? []), newEv];
     setStudentSchedules((prev) =>
       prev.map((stu) =>
         stu.id === studentId
@@ -505,6 +693,11 @@ export default function App() {
           : stu
       )
     );
+    if (firebaseUser) {
+      void updateUserStudentSchedule(firebaseUser.uid, studentId, {
+        extraEvents: nextExtraEvents,
+      });
+    }
     showToast(`Added event "${event.title}"`);
   };
 
@@ -521,6 +714,9 @@ export default function App() {
     setStudentSchedules((prev) =>
       prev.map((stu) => (stu.id === studentId ? { ...stu, ...updates } : stu))
     );
+    if (firebaseUser) {
+      void updateUserStudentSchedule(firebaseUser.uid, studentId, updates);
+    }
     showToast('Updated student internship timing');
   };
 
@@ -567,6 +763,9 @@ export default function App() {
       status: 'Pending',
     };
     setNocRequests((prev) => [newNoc, ...prev]);
+    if (firebaseUser) {
+      void createUserNocRequest(firebaseUser.uid, newNoc);
+    }
     showToast(`NOC Request (${refNo}) sent to Faculty Coordinator`);
   };
 
@@ -601,6 +800,9 @@ export default function App() {
       facultyVerified: false,
     };
     setParentConsents((prev) => [sheet, ...prev]);
+    if (firebaseUser) {
+      void createUserParentConsent(firebaseUser.uid, sheet);
+    }
     showToast(`Parent Consent Sheet (${code}) saved and shared with Faculty`);
   };
 
@@ -615,41 +817,60 @@ export default function App() {
     }
   ) => {
     const code = `IH-NOC-2026-${Math.floor(1000 + Math.random() * 9000)}`;
+    const sigRecord = {
+      signerName: signature.signerName,
+      signerDesignation: signature.signerDesignation,
+      signatureDataUrl: signature.signatureDataUrl,
+      signedAt: todayIso(),
+      verificationCode: code,
+      remarks: signature.remarks,
+    };
     setNocRequests((prev) =>
       prev.map((n) =>
         n.id === nocId
           ? {
               ...n,
               status: decision,
-              facultySignature: {
-                signerName: signature.signerName,
-                signerDesignation: signature.signerDesignation,
-                signatureDataUrl: signature.signatureDataUrl,
-                signedAt: todayIso(),
-                verificationCode: code,
-                remarks: signature.remarks,
-              },
+              facultySignature: sigRecord,
             }
           : n
       )
     );
+    if (firebaseUser) {
+      void signUserNocRequest(firebaseUser.uid, nocId, decision, sigRecord);
+    }
     showToast(`NOC ${decision.toLowerCase()} with digital signature (${code})`);
   };
 
   const handleVerifyParentConsent = (consentId: string) => {
+    const verifier = user?.name || 'Dr. Priya Rao';
     setParentConsents((prev) =>
       prev.map((sheet) =>
         sheet.id === consentId
           ? {
               ...sheet,
               facultyVerified: true,
-              verifiedBy: user?.name || 'Dr. Priya Rao',
+              verifiedBy: verifier,
               verifiedOn: todayIso(),
             }
           : sheet
       )
     );
+    if (firebaseUser) {
+      void verifyUserParentConsent(firebaseUser.uid, consentId, verifier);
+    }
     showToast('Parent Consent Sheet verified by Faculty');
+  };
+
+  const handleLogout = async () => {
+    if (firebaseUser) {
+      try {
+        await signOut(auth);
+      } catch {
+        // ignore signOut errors
+      }
+    }
+    setUser(null);
   };
 
   const deadlineAlerts = useMemo(() => {
@@ -666,6 +887,9 @@ export default function App() {
         darkMode={darkMode}
         onToggleTheme={() => setDarkMode((d) => !d)}
         onAuthenticate={handleAuthenticate}
+        onSelectPreferredRole={(nextRole) => {
+          preferredRoleRef.current = nextRole;
+        }}
       />
     );
   }
@@ -969,7 +1193,7 @@ export default function App() {
 
           <button
             type="button"
-            onClick={() => setUser(null)}
+            onClick={() => void handleLogout()}
             className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition-colors cursor-pointer ${
               isLearner
                 ? 'text-[#5b6b86] dark:text-[#9fb0cc] hover:bg-[#f3f6fb] dark:hover:bg-[#16213a]'
@@ -1100,7 +1324,13 @@ export default function App() {
 
             <button
               type="button"
-              onClick={() => setDarkMode((d) => !d)}
+              onClick={() => {
+                const next = !darkMode;
+                setDarkMode(next);
+                if (firebaseUser) {
+                  void updateUserAccountPrefs(firebaseUser.uid, { darkMode: next });
+                }
+              }}
               aria-label="Toggle theme"
               className="p-2 rounded-xl bg-white dark:bg-[#131d33] border border-[#dbe3f0] dark:border-[#24324d] text-[#5b6b86] dark:text-[#9fb0cc] hover:text-[#12203a] dark:hover:text-white transition-colors cursor-pointer"
             >
@@ -1254,6 +1484,8 @@ export default function App() {
                       userEmail={user.email}
                       initialSearch={hubInitialSearch}
                       onApply={handleApply}
+                      onRefreshHub={handleRefreshOpportunityHub}
+                      isSyncingHub={isSyncingHub}
                     />
                   )}
 
@@ -1309,6 +1541,9 @@ export default function App() {
                       userEmail={user.email}
                       onSaveProfile={(updated) => {
                         setProfile(updated);
+                        if (firebaseUser) {
+                          void saveUserProfile(firebaseUser.uid, updated);
+                        }
                         showToast('Profile and exam schedule saved');
                       }}
                     />

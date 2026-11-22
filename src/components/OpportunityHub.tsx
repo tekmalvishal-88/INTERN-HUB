@@ -6,6 +6,7 @@ import {
   ChevronRight,
   ExternalLink,
   Filter,
+  RefreshCw,
   Search,
   ShieldCheck,
   Sparkles,
@@ -35,6 +36,8 @@ interface OpportunityHubProps {
   userEmail: string;
   initialSearch?: string;
   onApply: (opp: Opportunity) => void;
+  onRefreshHub?: () => Promise<void>;
+  isSyncingHub?: boolean;
 }
 
 const FILTER_SKILLS = [
@@ -66,6 +69,8 @@ export const OpportunityHub: React.FC<OpportunityHubProps> = ({
   userEmail,
   initialSearch = '',
   onApply,
+  onRefreshHub,
+  isSyncingHub = false,
 }) => {
   const [search, setSearch] = useState(initialSearch);
   const [selectedTypes, setSelectedTypes] = useState<OpportunityType[]>([]);
@@ -478,10 +483,21 @@ export const OpportunityHub: React.FC<OpportunityHubProps> = ({
             />
           </div>
 
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
             <span className="text-xs font-semibold text-[#5b6b86] dark:text-[#9fb0cc] tabular-nums">
               Showing {enriched.length} opportunities
             </span>
+            {onRefreshHub && (
+              <button
+                type="button"
+                onClick={() => void onRefreshHub()}
+                disabled={isSyncingHub}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-[#dbe3f0] dark:border-[#24324d] bg-[#f8fafe] dark:bg-[#0e1626] hover:border-[#2f5bea] text-xs font-semibold text-[#2f5bea] dark:text-[#7a9bff] transition-colors cursor-pointer disabled:opacity-60 whitespace-nowrap"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isSyncingHub ? 'animate-spin' : ''}`} />
+                <span>{isSyncingHub ? 'Updating...' : 'Sync Hub'}</span>
+              </button>
+            )}
             <select
               value={sortBy}
               onChange={(e) => {

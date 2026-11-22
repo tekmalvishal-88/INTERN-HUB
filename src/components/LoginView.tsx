@@ -11,18 +11,22 @@ import {
   Moon,
   UserCheck,
 } from 'lucide-react';
+import { signInWithPopup } from 'firebase/auth';
+import { auth, googleAuthProvider } from '../lib/firebase';
 import type { UserAccount, UserRole } from '../types';
 
 interface LoginViewProps {
   darkMode: boolean;
   onToggleTheme: () => void;
   onAuthenticate: (user: UserAccount, setupDetails?: { branch?: string; semester?: number; college?: string }) => void;
+  onSelectPreferredRole?: (role: UserRole) => void;
 }
 
 export const LoginView: React.FC<LoginViewProps> = ({
   darkMode,
   onToggleTheme,
   onAuthenticate,
+  onSelectPreferredRole,
 }) => {
   const [mode, setMode] = useState<'signin' | 'register'>('signin');
   const [role, setRole] = useState<UserRole>('learner');
@@ -33,6 +37,23 @@ export const LoginView: React.FC<LoginViewProps> = ({
   const [branch, setBranch] = useState('Computer Science & Engineering');
   const [semester, setSemester] = useState<number>(5);
   const [error, setError] = useState('');
+  const [googleLoading, setGoogleLoading] = useState(false);
+
+  const handleGoogleSignIn = async () => {
+    setError('');
+    setGoogleLoading(true);
+    try {
+      onSelectPreferredRole?.(role);
+      await signInWithPopup(auth, googleAuthProvider);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Google sign-in failed.';
+      if (!msg.includes('popup-closed-by-user')) {
+        setError('Could not complete Google Sign-In. Please allow popups and try again.');
+      }
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -238,6 +259,42 @@ export const LoginView: React.FC<LoginViewProps> = ({
         {/* Right: Auth Card */}
         <div className="lg:col-span-5">
           <div className="bg-white dark:bg-[#131d33] border border-[#dbe3f0] dark:border-[#24324d] rounded-2xl p-6 sm:p-8 shadow-sm">
+            {/* Google Sign-In for per-user isolated account */}
+            <button
+              type="button"
+              onClick={() => void handleGoogleSignIn()}
+              disabled={googleLoading}
+              className="w-full py-2.5 px-4 mb-4 rounded-xl bg-white dark:bg-[#0b1120] border border-[#dbe3f0] dark:border-[#24324d] hover:border-[#2f5bea] dark:hover:border-[#7a9bff] text-[#12203a] dark:text-white font-bold text-sm flex items-center justify-center gap-2.5 transition-colors cursor-pointer disabled:opacity-60"
+            >
+              <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  fill="#4285F4"
+                  d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17Z"
+                />
+                <path
+                  fill="#34A853"
+                  d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.11-6.72-4.96H1.29v3.14C3.26 21.3 7.31 24 12 24Z"
+                />
+                <path
+                  fill="#FBBC05"
+                  d="M5.28 14.24c-.24-.72-.38-1.49-.38-2.24s.14-1.52.38-2.24V6.62H1.29C.47 8.24 0 10.06 0 12s.47 3.76 1.29 5.38l3.99-3.14Z"
+                />
+                <path
+                  fill="#EA4335"
+                  d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.62l3.99 3.14c.95-2.85 3.6-4.96 6.72-4.96Z"
+                />
+              </svg>
+              <span>{googleLoading ? 'Signing in with Google...' : 'Continue with Google'}</span>
+            </button>
+
+            <div className="relative flex items-center justify-center my-4">
+              <div className="border-t border-[#dbe3f0] dark:border-[#24324d] w-full" />
+              <span className="px-3 text-[11px] font-semibold text-[#5b6b86] dark:text-[#9fb0cc] bg-white dark:bg-[#131d33] whitespace-nowrap">
+                or local workspace sign in
+              </span>
+              <div className="border-t border-[#dbe3f0] dark:border-[#24324d] w-full" />
+            </div>
+
             {/* Sign In / Create Account tabs */}
             <div className="grid grid-cols-2 p-1 rounded-xl bg-[#f3f6fb] dark:bg-[#0b1120] mb-6">
               <button

@@ -1,0 +1,453 @@
+{
+  "entities": {
+    "UserAccountDoc": {
+      "title": "User Account",
+      "description": "Root per-user workspace record keyed by Firebase Auth UID.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "email": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "activeRole": {
+          "type": "string",
+          "enum": ["learner", "faculty", "organizer"]
+        },
+        "organization": {
+          "type": "string",
+          "maxLength": 140
+        },
+        "designation": {
+          "type": "string",
+          "maxLength": 140
+        },
+        "darkMode": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "name", "email", "activeRole", "darkMode", "createdAt", "updatedAt"]
+    },
+    "UserProfileDoc": {
+      "title": "Student Profile",
+      "description": "Isolated per-user student academic profile, skills, resume vault, and exam schedule.",
+      "type": "object",
+      "properties": {
+        "ownerUid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": { "type": "string", "maxLength": 120 },
+        "headline": { "type": "string", "maxLength": 220 },
+        "about": { "type": "string", "maxLength": 1500 },
+        "branch": { "type": "string", "maxLength": 120 },
+        "semester": { "type": "integer" },
+        "college": { "type": "string", "maxLength": 160 },
+        "cgpa": { "type": "string", "maxLength": 40 },
+        "gradYear": { "type": "string", "maxLength": 16 },
+        "location": { "type": "string", "maxLength": 120 },
+        "skills": { "type": "array" },
+        "resumeName": { "type": "string", "maxLength": 180 },
+        "resumes": { "type": "array" },
+        "projects": { "type": "array" },
+        "githubUrl": { "type": "string", "maxLength": 300 },
+        "linkedinUrl": { "type": "string", "maxLength": 300 },
+        "portfolioUrl": { "type": "string", "maxLength": 300 },
+        "examStart": { "type": "string", "maxLength": 20 },
+        "examEnd": { "type": "string", "maxLength": 20 },
+        "targetRole": { "type": "string", "maxLength": 140 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "ownerUid",
+        "name",
+        "headline",
+        "about",
+        "branch",
+        "semester",
+        "college",
+        "cgpa",
+        "gradYear",
+        "location",
+        "skills",
+        "resumeName",
+        "resumes",
+        "projects",
+        "githubUrl",
+        "linkedinUrl",
+        "portfolioUrl",
+        "examStart",
+        "examEnd",
+        "targetRole",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ApplicationDoc": {
+      "title": "Application Record",
+      "description": "Isolated per-user Kanban application entry.",
+      "type": "object",
+      "properties": {
+        "ownerUid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "opportunityId": { "type": "string", "maxLength": 128 },
+        "company": { "type": "string", "maxLength": 140 },
+        "roleTitle": { "type": "string", "maxLength": 160 },
+        "location": { "type": "string", "maxLength": 120 },
+        "applicantEmail": { "type": "string", "maxLength": 200 },
+        "applicantName": { "type": "string", "maxLength": 120 },
+        "applicantBranch": { "type": "string", "maxLength": 120 },
+        "applicantSemester": { "type": "integer" },
+        "applicantSkills": { "type": "array" },
+        "resumeUsed": { "type": "string", "maxLength": 180 },
+        "stage": {
+          "type": "string",
+          "enum": ["Applied", "Shortlisted", "Recruiter Call", "Phone Screen", "Selected", "Rejected"]
+        },
+        "appliedOn": { "type": "string", "maxLength": 20 },
+        "nextAction": { "type": "string", "maxLength": 300 },
+        "notes": { "type": "string", "maxLength": 1000 },
+        "isExternal": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "ownerUid",
+        "opportunityId",
+        "company",
+        "roleTitle",
+        "location",
+        "applicantEmail",
+        "applicantName",
+        "stage",
+        "appliedOn",
+        "isExternal",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "LeaveRequestDoc": {
+      "title": "Leave Request",
+      "description": "Per-user leave or on-duty approval request with optional digital signature.",
+      "type": "object",
+      "properties": {
+        "ownerUid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "studentName": { "type": "string", "maxLength": 120 },
+        "rollNumber": { "type": "string", "maxLength": 40 },
+        "studentEmail": { "type": "string", "maxLength": 200 },
+        "branch": { "type": "string", "maxLength": 120 },
+        "semester": { "type": "integer" },
+        "leaveType": {
+          "type": "string",
+          "enum": [
+            "Internship Joining",
+            "On-Duty (Hackathon/Event)",
+            "Interview / Assessment",
+            "Academic Leave"
+          ]
+        },
+        "companyOrEvent": { "type": "string", "maxLength": 180 },
+        "startDate": { "type": "string", "maxLength": 20 },
+        "endDate": { "type": "string", "maxLength": 20 },
+        "timingNote": { "type": "string", "maxLength": 160 },
+        "reason": { "type": "string", "maxLength": 1000 },
+        "submittedOn": { "type": "string", "maxLength": 20 },
+        "status": { "type": "string", "enum": ["Pending", "Approved", "Rejected"] },
+        "digitalSignature": { "type": "object" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "ownerUid",
+        "studentName",
+        "rollNumber",
+        "studentEmail",
+        "branch",
+        "semester",
+        "leaveType",
+        "companyOrEvent",
+        "startDate",
+        "endDate",
+        "timingNote",
+        "reason",
+        "submittedOn",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "NocRequestDoc": {
+      "title": "NOC Request",
+      "description": "Per-user No Objection Certificate request linked to Parent Consent and Faculty digital signature.",
+      "type": "object",
+      "properties": {
+        "ownerUid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "nocNumber": { "type": "string", "maxLength": 80 },
+        "studentName": { "type": "string", "maxLength": 120 },
+        "rollNumber": { "type": "string", "maxLength": 40 },
+        "studentEmail": { "type": "string", "maxLength": 200 },
+        "branch": { "type": "string", "maxLength": 120 },
+        "semester": { "type": "integer" },
+        "companyName": { "type": "string", "maxLength": 160 },
+        "roleTitle": { "type": "string", "maxLength": 160 },
+        "workMode": { "type": "string", "enum": ["Remote", "On-site", "Hybrid"] },
+        "location": { "type": "string", "maxLength": 120 },
+        "stipendLabel": { "type": "string", "maxLength": 80 },
+        "internshipStart": { "type": "string", "maxLength": 20 },
+        "internshipEnd": { "type": "string", "maxLength": 20 },
+        "dailyTiming": { "type": "string", "maxLength": 140 },
+        "hrContactName": { "type": "string", "maxLength": 120 },
+        "hrContactEmail": { "type": "string", "maxLength": 200 },
+        "offerLetterName": { "type": "string", "maxLength": 180 },
+        "parentConsentId": { "type": "string", "maxLength": 128 },
+        "parentSigned": { "type": "boolean" },
+        "academicRemarks": { "type": "string", "maxLength": 600 },
+        "submittedOn": { "type": "string", "maxLength": 20 },
+        "status": { "type": "string", "enum": ["Pending", "Approved", "Rejected"] },
+        "facultySignature": { "type": "object" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "ownerUid",
+        "nocNumber",
+        "studentName",
+        "rollNumber",
+        "studentEmail",
+        "branch",
+        "semester",
+        "companyName",
+        "roleTitle",
+        "workMode",
+        "location",
+        "stipendLabel",
+        "internshipStart",
+        "internshipEnd",
+        "dailyTiming",
+        "hrContactName",
+        "hrContactEmail",
+        "parentSigned",
+        "submittedOn",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ParentConsentDoc": {
+      "title": "Parent Consent Sheet",
+      "description": "Per-user signed parent/guardian consent sheet.",
+      "type": "object",
+      "properties": {
+        "ownerUid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "consentCode": { "type": "string", "maxLength": 80 },
+        "studentName": { "type": "string", "maxLength": 120 },
+        "rollNumber": { "type": "string", "maxLength": 40 },
+        "studentEmail": { "type": "string", "maxLength": 200 },
+        "branch": { "type": "string", "maxLength": 120 },
+        "semester": { "type": "integer" },
+        "parentName": { "type": "string", "maxLength": 120 },
+        "relationship": { "type": "string", "enum": ["Father", "Mother", "Legal Guardian"] },
+        "parentPhone": { "type": "string", "maxLength": 40 },
+        "parentEmail": { "type": "string", "maxLength": 200 },
+        "emergencyContact": { "type": "string", "maxLength": 40 },
+        "companyOrEvent": { "type": "string", "maxLength": 180 },
+        "internshipLocation": { "type": "string", "maxLength": 140 },
+        "workMode": { "type": "string", "enum": ["Remote", "On-site", "Hybrid"] },
+        "startDate": { "type": "string", "maxLength": 20 },
+        "endDate": { "type": "string", "maxLength": 20 },
+        "travelAndStayConfirmed": { "type": "boolean" },
+        "medicalInsuranceConfirmed": { "type": "boolean" },
+        "academicAttendanceUnderstood": { "type": "boolean" },
+        "parentSignatureDataUrl": { "type": "string", "maxLength": 250000 },
+        "signedOn": { "type": "string", "maxLength": 20 },
+        "facultyVerified": { "type": "boolean" },
+        "verifiedBy": { "type": "string", "maxLength": 120 },
+        "verifiedOn": { "type": "string", "maxLength": 20 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "ownerUid",
+        "consentCode",
+        "studentName",
+        "rollNumber",
+        "studentEmail",
+        "branch",
+        "semester",
+        "parentName",
+        "relationship",
+        "parentPhone",
+        "parentEmail",
+        "emergencyContact",
+        "companyOrEvent",
+        "internshipLocation",
+        "workMode",
+        "startDate",
+        "endDate",
+        "travelAndStayConfirmed",
+        "medicalInsuranceConfirmed",
+        "academicAttendanceUnderstood",
+        "parentSignatureDataUrl",
+        "signedOn",
+        "facultyVerified",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "StudentScheduleDoc": {
+      "title": "Student Schedule Record",
+      "description": "Per-user faculty student roster schedule, internship timing, and event tracker.",
+      "type": "object",
+      "properties": {
+        "ownerUid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "studentName": { "type": "string", "maxLength": 120 },
+        "rollNumber": { "type": "string", "maxLength": 40 },
+        "email": { "type": "string", "maxLength": 200 },
+        "branch": { "type": "string", "maxLength": 120 },
+        "semester": { "type": "integer" },
+        "internshipCompany": { "type": "string", "maxLength": 140 },
+        "internshipRole": { "type": "string", "maxLength": 160 },
+        "internshipTiming": { "type": "string", "maxLength": 160 },
+        "internshipStart": { "type": "string", "maxLength": 20 },
+        "internshipEnd": { "type": "string", "maxLength": 20 },
+        "upcomingEvent": { "type": "string", "maxLength": 180 },
+        "eventDate": { "type": "string", "maxLength": 20 },
+        "eventTiming": { "type": "string", "maxLength": 120 },
+        "extraEvents": { "type": "array" },
+        "examWindow": { "type": "string", "maxLength": 120 },
+        "attendanceStatus": {
+          "type": "string",
+          "enum": ["On Track", "Leave Approved", "Event OD", "Needs Review"]
+        },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "ownerUid",
+        "studentName",
+        "rollNumber",
+        "email",
+        "branch",
+        "semester",
+        "internshipCompany",
+        "internshipRole",
+        "internshipTiming",
+        "internshipStart",
+        "internshipEnd",
+        "upcomingEvent",
+        "eventDate",
+        "eventTiming",
+        "examWindow",
+        "attendanceStatus",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "OpportunityDoc": {
+      "title": "Opportunity Hub Listing",
+      "description": "Shared, live-updating Opportunity Hub collection synced across all authenticated users.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "maxLength": 160 },
+        "company": { "type": "string", "maxLength": 140 },
+        "type": { "type": "string", "enum": ["Internship", "Hackathon", "Job"] },
+        "domain": {
+          "type": "string",
+          "enum": ["Software", "Data", "Design", "Electronics", "Marketing"]
+        },
+        "mode": { "type": "string", "enum": ["Remote", "On-site", "Hybrid"] },
+        "location": { "type": "string", "maxLength": 140 },
+        "stipend": { "type": "number" },
+        "stipendLabel": { "type": "string", "maxLength": 80 },
+        "durationLabel": { "type": "string", "maxLength": 80 },
+        "deadline": { "type": "string", "maxLength": 20 },
+        "startDate": { "type": "string", "maxLength": 20 },
+        "endDate": { "type": "string", "maxLength": 20 },
+        "skills": { "type": "array" },
+        "minSemester": { "type": "integer" },
+        "description": { "type": "string", "maxLength": 1200 },
+        "sourcePlatform": { "type": "string", "maxLength": 120 },
+        "officialUrl": { "type": "string", "maxLength": 400 },
+        "ownerOrg": { "type": "string", "maxLength": 140 },
+        "verified": { "type": "boolean" },
+        "createdByUid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "title",
+        "company",
+        "type",
+        "domain",
+        "mode",
+        "location",
+        "stipend",
+        "durationLabel",
+        "deadline",
+        "startDate",
+        "endDate",
+        "skills",
+        "minSemester",
+        "description",
+        "sourcePlatform",
+        "officialUrl",
+        "ownerOrg",
+        "verified",
+        "createdByUid",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserAccountDoc" },
+      "description": "Isolated root user workspace document owned exclusively by userId."
+    },
+    "/users/{userId}/profile/{docId}": {
+      "schema": { "$ref": "#/entities/UserProfileDoc" },
+      "description": "User's private academic profile, resume vault, projects, and exam window."
+    },
+    "/users/{userId}/applications/{applicationId}": {
+      "schema": { "$ref": "#/entities/ApplicationDoc" },
+      "description": "User's private Kanban internship application pipeline."
+    },
+    "/users/{userId}/leaveRequests/{leaveId}": {
+      "schema": { "$ref": "#/entities/LeaveRequestDoc" },
+      "description": "User's leave and on-duty approval requests."
+    },
+    "/users/{userId}/nocRequests/{nocId}": {
+      "schema": { "$ref": "#/entities/NocRequestDoc" },
+      "description": "User's NOC permission requests and issued NOC certificates."
+    },
+    "/users/{userId}/parentConsents/{consentId}": {
+      "schema": { "$ref": "#/entities/ParentConsentDoc" },
+      "description": "User's signed parent/guardian consent sheets."
+    },
+    "/users/{userId}/studentSchedules/{scheduleId}": {
+      "schema": { "$ref": "#/entities/StudentScheduleDoc" },
+      "description": "User's faculty schedule & event tracker records."
+    },
+    "/opportunities/{opportunityId}": {
+      "schema": { "$ref": "#/entities/OpportunityDoc" },
+      "description": "Single live-updating Opportunity Hub collection shared across authenticated users."
+    }
+  }
+}
