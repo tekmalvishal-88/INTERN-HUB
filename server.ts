@@ -5,7 +5,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -261,6 +261,125 @@ app.post('/api/smart-pick', async (req, res) => {
     const message = err instanceof Error ? err.message : 'Smart Picker failed.';
     if (message === 'REQUEST_TIMEOUT') {
       res.status(504).json({ error: 'AI Smart Picker timed out. Please try again.' });
+      return;
+    }
+    res.status(500).json({ error: message });
+  }
+});
+
+app.post('/api/personalize', async (req, res) => {
+  const apiKey = getApiKey();
+  if (!apiKey) {
+    res.status(400).json({
+      error:
+        'GEMINI_API_KEY is not configured. Add your key in .env (local) or Settings > Secrets for live Gemini suggestions.',
+    });
+    return;
+  }
+
+  const startedAt = Date.now();
+  try {
+    const body = req.body as {
+      role?: string;
+      userName?: string;
+      skills?: string[];
+      semester?: number;
+      personalization?: {
+        preferredDomains?: string[];
+        preferredModes?: string[];
+        preferredLocations?: string[];
+        minStipend?: number;
+        careerGoal?: string;
+        examSafeOnly?: boolean;
+        facultyDepartment?: string;
+        facultyFocus?: string;
+        organizerCompany?: string;
+      };
+      candidates?: SmartPickCandidate[];
+    };
+
+    const candidates = Array.isArray(body?.candidates) ? body.candidates.slice(0, 20) : [];
+    const ai = createAiClient(apiKey);
+    const pref = body.personalization || {};
+
+    const prompt = [
+      `User: ${body.userName || 'Student'} (${body.role || 'learner'})`,
+      `Skills: ${(body.skills || []).join(', ')}`,
+      `Semester: ${body.semester || 5}`,
+      `Preferred Domains: ${(pref.preferredDomains || []).join(', ') || 'Software, Data'}`,
+      `Preferred Work Modes: ${(pref.preferredModes || []).join(', ') || 'Remote, Hybrid'}`,
+      `Preferred Locations: ${(pref.preferredLocations || []).join(', ') || 'Hyderabad, Remote'}`,
+      `Minimum Stipend: ₹${pref.minStipend || 0}/mo`,
+      `Exam-safe priority: ${pref.examSafeOnly !== false ? 'Yes' : 'Flexible'}`,
+      `Career Goal / Focus: ${pref.careerGoal || pref.facultyFocus || pref.organizerCompany || 'High-impact internships & skill growth'}`,
+      '',
+      'From the candidates list below, pick up to 4 best opportunities tailored to these preferences.',
+      'Return ONLY valid JSON matching:',
+      '{"summary":"2 concise sentences summarizing personalized roadmap & focus","skillAdvice":["skill 1","skill 2"],"recommendations":[{"opportunityId":"...","fitTag":"2-3 word label","reason":"1 concise personalized sentence"}]}',
+      JSON.stringify(candidates),
+    ].join('\n');
+
+    const runPersonalizeCall = (modelName: string, timeoutMs: number) =>
+      Promise.race([
+        ai.models.generateContent({
+          model: modelName,
+          contents: prompt,
+          config: {
+            systemInstruction:
+              'You are InternHub AI Career Advisor. Respond with strictly valid JSON and no markdown fences.',
+            ...(modelName === 'gemini-4-hydrogen'
+              ? { thinkingConfig: { thinkingLevel: ThinkingLevel.LOW } }
+              : {}),
+          },
+        }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('REQUEST_TIMEOUT')), timeoutMs)
+        ),
+      ]);
+
+    let response;
+    try {
+      response = await runPersonalizeCall('gemini-4-hydrogen', 7500);
+    } catch (primaryErr: unknown) {
+      const msg = primaryErr instanceof Error ? primaryErr.message : '';
+      if (
+        msg === 'REQUEST_TIMEOUT' ||
+        msg.includes('503') ||
+        msg.toLowerCase().includes('unavailable')
+      ) {
+        response = await runPersonalizeCall('gemini-3.1-flash-lite', 10000);
+      } else {
+        throw primaryErr;
+      }
+    }
+
+    const rawText = (response.text ?? '{}')
+      .trim()
+      .replace(/^```json\s*/i, '')
+      .replace(/^```\s*/i, '')
+      .replace(/```$/i, '')
+      .trim();
+
+    const parsed = JSON.parse(rawText) as {
+      summary?: string;
+      skillAdvice?: string[];
+      recommendations?: Array<{ opportunityId: string; fitTag: string; reason: string }>;
+    };
+
+    res.json({
+      summary:
+        parsed.summary ||
+        'Your workspace has been personalized around your target domains, work mode preferences, and academic exam schedule.',
+      skillAdvice: Array.isArray(parsed.skillAdvice) ? parsed.skillAdvice.slice(0, 3) : [],
+      recommendations: Array.isArray(parsed.recommendations)
+        ? parsed.recommendations.slice(0, 4)
+        : [],
+      latencyMs: Date.now() - startedAt,
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Personalization AI failed.';
+    if (message === 'REQUEST_TIMEOUT') {
+      res.status(504).json({ error: 'Gemini AI took too long to personalize. Please try again.' });
       return;
     }
     res.status(500).json({ error: message });

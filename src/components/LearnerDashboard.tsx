@@ -12,10 +12,13 @@ import {
   Users,
 } from 'lucide-react';
 import type {
+  ApplicationCriteriaPayload,
   ApplicationRecord,
   CourseResource,
   LearnerTab,
+  NocRequest,
   Opportunity,
+  ParentConsentSheet,
   StudentProfile,
   UserAccount,
 } from '../types';
@@ -27,6 +30,7 @@ import {
   getSkillMatch,
   todayIso,
 } from '../utils/matching';
+import { ApplicationCriteriaModal } from './ApplicationCriteriaModal';
 import { GoogleVAvatar } from './GoogleVAvatar';
 
 interface LearnerDashboardProps {
@@ -35,13 +39,16 @@ interface LearnerDashboardProps {
   opportunities: Opportunity[];
   applications: ApplicationRecord[];
   courses: CourseResource[];
+  nocRequests?: NocRequest[];
+  parentConsents?: ParentConsentSheet[];
   nocCount?: number;
   approvedNocCount?: number;
   parentConsentCount?: number;
   onNavigate: (tab: LearnerTab) => void;
-  onApply: (opp: Opportunity) => void;
+  onApply: (opp: Opportunity, details?: ApplicationCriteriaPayload) => void;
   onUploadResume: (fileName: string) => void;
   onLaunchAiPrompt: (prompt: string) => void;
+  onOpenPersonalization?: () => void;
 }
 
 type UrgencyTier = 'none' | 'red' | 'orange' | 'green';
@@ -59,6 +66,8 @@ export const LearnerDashboard: React.FC<LearnerDashboardProps> = ({
   opportunities,
   applications,
   courses,
+  nocRequests = [],
+  parentConsents = [],
   nocCount = 0,
   approvedNocCount = 0,
   parentConsentCount = 0,
@@ -66,14 +75,17 @@ export const LearnerDashboard: React.FC<LearnerDashboardProps> = ({
   onApply,
   onUploadResume,
   onLaunchAiPrompt,
+  onOpenPersonalization,
 }) => {
   const [matchIndex, setMatchIndex] = useState(0);
   const [dragActive, setDragActive] = useState(false);
   const [selectedDay, setSelectedDay] = useState<string>(todayIso());
+  const [applyingOpp, setApplyingOpp] = useState<Opportunity | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const myApps = useMemo(
-    () => applications.filter((a) => a.applicantEmail === user.email),
+    () =>
+      applications.filter((a) => a.applicantEmail.toLowerCase() === user.email.toLowerCase()),
     [applications, user.email]
   );
 
@@ -240,7 +252,9 @@ export const LearnerDashboard: React.FC<LearnerDashboardProps> = ({
                     </span>
                   </div>
                   <p className="text-xs text-[#5b6b86] dark:text-[#9fb0cc] mt-1">
-                    {recommended.length} exam-safe opportunities matched
+                    {myApps.length === 0
+                      ? `${recommended.length} exam-safe roles ready in Hub`
+                      : `${recommended.length} exam-safe opportunities matched`}
                   </p>
                 </div>
 
@@ -348,7 +362,7 @@ export const LearnerDashboard: React.FC<LearnerDashboardProps> = ({
                           {featuredItem.opp.title}
                         </h3>
                       </div>
-                      <span className="font-mono text-xs font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md tabular-nums shrink-0">
+                      <span className="font-mono text-xs font-bold text-emerald-700 tabular-nums shrink-0">
                         {featuredItem.match.pct}% fit
                       </span>
                     </div>
@@ -376,7 +390,7 @@ export const LearnerDashboard: React.FC<LearnerDashboardProps> = ({
                     ) : (
                       <button
                         type="button"
-                        onClick={() => onApply(featuredItem.opp)}
+                        onClick={() => setApplyingOpp(featuredItem.opp)}
                         className="flex-1 py-2 px-3 rounded-xl bg-[#2f5bea] hover:bg-[#3e68f0] text-white text-xs font-semibold transition-colors cursor-pointer"
                       >
                         Apply with saved resume
@@ -400,13 +414,19 @@ export const LearnerDashboard: React.FC<LearnerDashboardProps> = ({
               )}
             </div>
 
-            {/* Mock Interview Card with Google V Avatar */}
+            {/* Mock Interview Card with User First-Letter Avatar */}
             <div className="md:col-span-4 bg-white dark:bg-[#131d33] border border-[#dbe3f0] dark:border-[#24324d] rounded-2xl p-5 flex flex-col justify-between">
               <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <GoogleVAvatar size="md" showRing />
-                  <span className="text-[11px] font-bold px-2.5 py-1 rounded-md bg-[#e8eeff] dark:bg-[#1c2a50] text-[#2f5bea] dark:text-[#7a9bff]">
-                    AI VOICE PREP
+                <div className="flex items-center justify-between gap-2">
+                  <GoogleVAvatar
+                    name={profile.name || user.name}
+                    email={user.email}
+                    role={user.role}
+                    size="md"
+                    showRing={false}
+                  />
+                  <span className="text-[11px] font-semibold text-[#2f5bea] dark:text-[#7a9bff]">
+                    AI Voice Coach
                   </span>
                 </div>
 
@@ -484,6 +504,112 @@ export const LearnerDashboard: React.FC<LearnerDashboardProps> = ({
                 )}
               </div>
             </div>
+          </div>
+
+          {/* Personalized AI Suggestions Panel */}
+          <div className="bg-white dark:bg-[#131d33] border border-[#dbe3f0] dark:border-[#24324d] rounded-2xl p-5 space-y-3.5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-[#2f5bea] dark:text-[#7a9bff]" />
+                <h2 className="text-sm font-bold">AI Personalized Picks For You</h2>
+              </div>
+              {onOpenPersonalization && (
+                <button
+                  type="button"
+                  onClick={onOpenPersonalization}
+                  className="text-xs font-bold text-[#2f5bea] dark:text-[#7a9bff] hover:underline cursor-pointer self-start sm:self-auto"
+                >
+                  {user.aiSuggestions ? 'Update AI Preferences' : 'Set Preferences & Generate Picks'}
+                </button>
+              )}
+            </div>
+
+            {user.aiSuggestions ? (
+              <div className="space-y-3">
+                <p className="text-xs text-[#5b6b86] dark:text-[#9fb0cc] leading-relaxed">
+                  {user.aiSuggestions.summary}
+                </p>
+
+                {user.aiSuggestions.skillAdvice.length > 0 && (
+                  <p className="text-xs font-semibold text-[#12203a] dark:text-[#e8eefc]">
+                    AI Focus Skills:{' '}
+                    <span className="text-[#2f5bea] dark:text-[#7a9bff]">
+                      {user.aiSuggestions.skillAdvice.join(' · ')}
+                    </span>
+                  </p>
+                )}
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {user.aiSuggestions.recommendations
+                    .map((rec) => {
+                      const opp = opportunities.find((o) => o.id === rec.opportunityId);
+                      return opp ? { rec, opp } : null;
+                    })
+                    .filter((x): x is NonNullable<typeof x> => x !== null)
+                    .slice(0, 4)
+                    .map(({ rec, opp }) => {
+                      const applied = myApps.some((a) => a.opportunityId === opp.id);
+                      return (
+                        <div
+                          key={opp.id}
+                          className="p-3.5 rounded-xl bg-[#f8fafe] dark:bg-[#0e1626] border border-[#dbe3f0] dark:border-[#24324d] flex flex-col justify-between gap-2.5"
+                        >
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between gap-2 text-[11px]">
+                              <span className="font-bold text-[#2f5bea] dark:text-[#7a9bff]">
+                                {rec.fitTag}
+                              </span>
+                              <span className="font-mono font-semibold text-[#5b6b86] dark:text-[#9fb0cc] tabular-nums">
+                                {formatStipend(opp)}
+                              </span>
+                            </div>
+                            <h3 className="text-xs font-bold leading-snug">
+                              {opp.title} · {opp.company}
+                            </h3>
+                            <p className="text-[11px] text-[#5b6b86] dark:text-[#9fb0cc] leading-relaxed">
+                              {rec.reason}
+                            </p>
+                          </div>
+
+                          <div className="flex items-center justify-between gap-2 pt-2 border-t border-[#dbe3f0] dark:border-[#24324d]">
+                            <span className="text-[11px] text-[#5b6b86] dark:text-[#9fb0cc]">
+                              {opp.mode} · {opp.location}
+                            </span>
+                            {applied ? (
+                              <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400">
+                                Applied
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setApplyingOpp(opp)}
+                                className="px-3 py-1 rounded-lg bg-[#2f5bea] hover:bg-[#244bc9] text-white text-[11px] font-bold cursor-pointer"
+                              >
+                                Apply
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-xl bg-[#f8fafe] dark:bg-[#0e1626] border border-[#dbe3f0] dark:border-[#24324d]">
+                <p className="text-xs text-[#5b6b86] dark:text-[#9fb0cc]">
+                  Complete your workspace personalization so Gemini AI can tailor top internships and skill tips for your goals.
+                </p>
+                {onOpenPersonalization && (
+                  <button
+                    type="button"
+                    onClick={onOpenPersonalization}
+                    className="px-4 py-2 rounded-xl bg-[#2f5bea] hover:bg-[#244bc9] text-white text-xs font-bold shrink-0 cursor-pointer"
+                  >
+                    Personalize Now
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Bottom Row: Skill Track Recommendations */}
@@ -747,6 +873,19 @@ export const LearnerDashboard: React.FC<LearnerDashboardProps> = ({
           </div>
         </div>
       </div>
+
+      <ApplicationCriteriaModal
+        opportunity={applyingOpp}
+        profile={profile}
+        userEmail={user.email}
+        nocRequests={nocRequests}
+        parentConsents={parentConsents}
+        onClose={() => setApplyingOpp(null)}
+        onSubmit={(opp, details) => {
+          onApply(opp, details);
+          setApplyingOpp(null);
+        }}
+      />
     </div>
   );
 };

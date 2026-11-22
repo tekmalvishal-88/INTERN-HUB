@@ -54,7 +54,11 @@ service cloud.firestore {
     // --- Entity Validation Blueprints ---
     function isValidUserAccount(data) {
       return data.keys().hasAll(['uid', 'name', 'email', 'activeRole', 'darkMode', 'createdAt', 'updatedAt'])
-        && data.keys().hasOnly(['uid', 'name', 'email', 'activeRole', 'organization', 'designation', 'darkMode', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly([
+          'uid', 'name', 'email', 'activeRole', 'organization', 'designation', 'darkMode',
+          'lastLoginAt', 'lastLoginMethod', 'loginCount', 'onboardingCompleted',
+          'personalization', 'aiSuggestions', 'createdAt', 'updatedAt'
+        ])
         && isValidId(data.uid)
         && data.uid == request.auth.uid
         && isValidString(data.name, 1, 120)
@@ -63,6 +67,12 @@ service cloud.firestore {
         && (!('organization' in data) || isValidString(data.organization, 0, 140))
         && (!('designation' in data) || isValidString(data.designation, 0, 140))
         && data.darkMode is bool
+        && (!('lastLoginAt' in data) || isValidString(data.lastLoginAt, 0, 40))
+        && (!('lastLoginMethod' in data) || data.lastLoginMethod in ['google', 'local'])
+        && (!('loginCount' in data) || (data.loginCount is int && data.loginCount >= 0))
+        && (!('onboardingCompleted' in data) || data.onboardingCompleted is bool)
+        && (!('personalization' in data) || data.personalization is map)
+        && (!('aiSuggestions' in data) || data.aiSuggestions is map)
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
     }
@@ -115,10 +125,12 @@ service cloud.firestore {
           'ownerUid', 'opportunityId', 'company', 'roleTitle', 'location',
           'applicantEmail', 'applicantName', 'applicantBranch', 'applicantSemester',
           'applicantSkills', 'resumeUsed', 'stage', 'appliedOn', 'nextAction',
-          'notes', 'isExternal', 'createdAt', 'updatedAt'
+          'notes', 'isExternal', 'applicationDetails',
+          'attachedNocId', 'attachedNocNumber', 'attachedConsentId', 'attachedConsentCode',
+          'facultyApproval', 'organizerConfirmedAllowed', 'organizerConfirmedAt',
+          'createdAt', 'updatedAt'
         ])
         && isValidId(data.ownerUid)
-        && data.ownerUid == request.auth.uid
         && isValidString(data.opportunityId, 1, 128)
         && isValidString(data.company, 1, 140)
         && isValidString(data.roleTitle, 1, 160)
@@ -134,8 +146,43 @@ service cloud.firestore {
         && (!('nextAction' in data) || isValidString(data.nextAction, 0, 300))
         && (!('notes' in data) || isValidString(data.notes, 0, 1000))
         && data.isExternal is bool
+        && (!('applicationDetails' in data) || data.applicationDetails is map)
+        && (!('attachedNocId' in data) || isValidString(data.attachedNocId, 0, 128))
+        && (!('attachedNocNumber' in data) || isValidString(data.attachedNocNumber, 0, 80))
+        && (!('attachedConsentId' in data) || isValidString(data.attachedConsentId, 0, 128))
+        && (!('attachedConsentCode' in data) || isValidString(data.attachedConsentCode, 0, 80))
+        && (!('facultyApproval' in data) || (
+          data.facultyApproval is map
+          && data.facultyApproval.keys().hasAll(['status', 'programClearance'])
+          && data.facultyApproval.keys().hasOnly(['status', 'programClearance', 'digitalSignature'])
+          && data.facultyApproval.status in ['Pending', 'Approved', 'Rejected']
+          && data.facultyApproval.programClearance in ['Pending Review', 'Open / Allowed for Program', 'Not Cleared']
+          && (!('digitalSignature' in data.facultyApproval) || data.facultyApproval.digitalSignature is map)
+        ))
+        && (!('organizerConfirmedAllowed' in data) || data.organizerConfirmedAllowed is bool)
+        && (!('organizerConfirmedAt' in data) || isValidString(data.organizerConfirmedAt, 0, 20))
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
+    }
+
+    function isValidActivityLog(data) {
+      return data.keys().hasAll([
+          'ownerUid', 'role', 'actionType', 'title', 'details',
+          'deviceSummary', 'occurredAt', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'ownerUid', 'role', 'actionType', 'title', 'details',
+          'deviceSummary', 'occurredAt', 'createdAt'
+        ])
+        && isValidId(data.ownerUid)
+        && data.ownerUid == request.auth.uid
+        && data.role in ['learner', 'faculty', 'organizer']
+        && isValidString(data.actionType, 1, 48)
+        && isValidString(data.title, 1, 160)
+        && isValidString(data.details, 0, 400)
+        && isValidString(data.deviceSummary, 0, 140)
+        && isValidString(data.occurredAt, 4, 40)
+        && data.createdAt is timestamp;
     }
 
     function isValidLeaveRequest(data) {
@@ -360,7 +407,11 @@ service cloud.firestore {
         && incoming().uid == existing().uid
         && incoming().createdAt == existing().createdAt
         && incoming().updatedAt == request.time
-        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'email', 'activeRole', 'organization', 'designation', 'darkMode', 'updatedAt']);
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'name', 'email', 'activeRole', 'organization', 'designation', 'darkMode',
+          'lastLoginAt', 'lastLoginMethod', 'loginCount', 'onboardingCompleted',
+          'personalization', 'aiSuggestions', 'updatedAt'
+        ]);
       allow delete: if false;
 
       match /profile/{docId} {
@@ -387,21 +438,43 @@ service cloud.firestore {
       }
 
       match /applications/{applicationId} {
-        allow get: if isOwner(userId) && isValidId(applicationId);
+        allow get: if (isOwner(userId) || isAdmin()) && isValidId(applicationId);
         allow list: if isOwner(userId) && existing().ownerUid == request.auth.uid;
         allow create: if isOwner(userId)
           && isValidId(applicationId)
           && isValidApplication(incoming())
+          && incoming().ownerUid == request.auth.uid
           && incoming().createdAt == request.time
           && incoming().updatedAt == request.time;
-        allow update: if isOwner(userId)
+        allow update: if isVerifiedUser()
           && isValidId(applicationId)
           && isValidApplication(incoming())
           && incoming().ownerUid == existing().ownerUid
           && incoming().createdAt == existing().createdAt
           && incoming().updatedAt == request.time
-          && incoming().diff(existing()).affectedKeys().hasOnly(['stage', 'resumeUsed', 'nextAction', 'notes', 'updatedAt']);
+          && (
+            (isOwner(userId) && incoming().diff(existing()).affectedKeys().hasOnly([
+              'stage', 'resumeUsed', 'nextAction', 'notes',
+              'attachedNocId', 'attachedNocNumber', 'attachedConsentId', 'attachedConsentCode',
+              'facultyApproval', 'organizerConfirmedAllowed', 'organizerConfirmedAt', 'updatedAt'
+            ])) ||
+            (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly([
+              'facultyApproval', 'attachedNocId', 'attachedNocNumber',
+              'attachedConsentId', 'attachedConsentCode',
+              'organizerConfirmedAllowed', 'organizerConfirmedAt', 'updatedAt'
+            ]))
+          );
         allow delete: if isOwner(userId) && isValidId(applicationId);
+      }
+
+      match /activityLogs/{logId} {
+        allow get: if isOwner(userId) && isValidId(logId);
+        allow list: if isOwner(userId) && existing().ownerUid == request.auth.uid;
+        allow create: if isOwner(userId)
+          && isValidId(logId)
+          && isValidActivityLog(incoming())
+          && incoming().createdAt == request.time;
+        allow update, delete: if false;
       }
 
       match /leaveRequests/{leaveId} {

@@ -19,7 +19,7 @@ export type LearnerTab =
   | 'approvals'
   | 'skills'
   | 'profile';
-export type FacultyTab = 'approvals' | 'noc' | 'students' | 'calendar';
+export type FacultyTab = 'approvals' | 'noc' | 'applications' | 'students' | 'calendar';
 export type OrganizerTab = 'analytics' | 'post' | 'applicants' | 'org-profile';
 
 export type LeaveType =
@@ -142,6 +142,54 @@ export interface StudentScheduleRecord {
   attendanceStatus: 'On Track' | 'Leave Approved' | 'Event OD' | 'Needs Review';
 }
 
+export interface UserPersonalization {
+  preferredDomains: DomainCategory[];
+  preferredModes: WorkMode[];
+  preferredLocations: string[];
+  minStipend: number;
+  careerGoal: string;
+  examSafeOnly: boolean;
+  facultyDepartment?: string;
+  facultyFocus?: string;
+  organizerCompany?: string;
+  organizerHiringDomains?: DomainCategory[];
+}
+
+export interface AiPersonalizationResult {
+  summary: string;
+  skillAdvice: string[];
+  recommendations: AiSmartPick[];
+  generatedAt: string;
+}
+
+export type ActivityActionType =
+  | 'login'
+  | 'role_switch'
+  | 'apply'
+  | 'profile_update'
+  | 'personalize'
+  | 'leave_submit'
+  | 'leave_sign'
+  | 'noc_submit'
+  | 'noc_sign'
+  | 'consent_submit'
+  | 'consent_verify'
+  | 'application_sign'
+  | 'organizer_confirm'
+  | 'opportunity_publish'
+  | 'hub_sync'
+  | 'schedule_update';
+
+export interface UserActivityLog {
+  id: string;
+  role: UserRole;
+  actionType: ActivityActionType;
+  title: string;
+  details: string;
+  deviceSummary: string;
+  occurredAt: string;
+}
+
 export interface UserAccount {
   id: string;
   name: string;
@@ -150,6 +198,12 @@ export interface UserAccount {
   organization?: string;
   designation?: string;
   verified?: boolean;
+  lastLoginAt?: string;
+  lastLoginMethod?: 'google' | 'local';
+  loginCount?: number;
+  onboardingCompleted?: boolean;
+  personalization?: UserPersonalization;
+  aiSuggestions?: AiPersonalizationResult;
 }
 
 export interface ResumeItem {
@@ -215,6 +269,37 @@ export interface Opportunity {
   verified: boolean;
 }
 
+export type ProgramClearanceStatus =
+  | 'Pending Review'
+  | 'Open / Allowed for Program'
+  | 'Not Cleared';
+
+export interface FacultyApplicationApproval {
+  status: 'Pending' | 'Approved' | 'Rejected';
+  programClearance: ProgramClearanceStatus;
+  digitalSignature?: DigitalSignatureRecord;
+}
+
+export interface ApplicationCriteriaPayload {
+  fullName: string;
+  email: string;
+  rollNumber: string;
+  branch: string;
+  semester: number;
+  cgpa: string;
+  resumeUsed: string;
+  portfolioUrl: string;
+  availability: string;
+  coverNote: string;
+  attachedNocId?: string;
+  attachedNocNumber?: string;
+  attachedConsentId?: string;
+  attachedConsentCode?: string;
+  confirmedCriteria: boolean;
+  confirmedExamCompliance: boolean;
+  confirmedAuthenticity: boolean;
+}
+
 export interface ApplicationRecord {
   id: string;
   opportunityId: string;
@@ -232,6 +317,14 @@ export interface ApplicationRecord {
   nextAction?: string;
   notes?: string;
   isExternal?: boolean;
+  applicationDetails?: ApplicationCriteriaPayload;
+  attachedNocId?: string;
+  attachedNocNumber?: string;
+  attachedConsentId?: string;
+  attachedConsentCode?: string;
+  facultyApproval?: FacultyApplicationApproval;
+  organizerConfirmedAllowed?: boolean;
+  organizerConfirmedAt?: string;
 }
 
 export interface CourseResource {

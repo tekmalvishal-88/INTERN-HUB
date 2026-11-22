@@ -17,6 +17,7 @@ import {
   X,
 } from 'lucide-react';
 import type {
+  ApplicationRecord,
   LeaveRequest,
   NocRequest,
   Opportunity,
@@ -31,6 +32,7 @@ interface StudentApprovalsViewProps {
   userEmail: string;
   userName: string;
   opportunities: Opportunity[];
+  applications?: ApplicationRecord[];
   nocRequests: NocRequest[];
   parentConsents: ParentConsentSheet[];
   leaveRequests: LeaveRequest[];
@@ -72,6 +74,7 @@ export const StudentApprovalsView: React.FC<StudentApprovalsViewProps> = ({
   userEmail,
   userName,
   opportunities,
+  applications = [],
   nocRequests,
   parentConsents,
   leaveRequests,
@@ -122,34 +125,47 @@ export const StudentApprovalsView: React.FC<StudentApprovalsViewProps> = ({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const isDrawingRef = useRef(false);
 
+  const normalizedEmail = userEmail.trim().toLowerCase();
+  const normalizedName = (profile.name || userName).trim().toLowerCase();
+
   const myNocs = useMemo(
     () =>
       nocRequests.filter(
         (n) =>
-          n.studentEmail === userEmail ||
-          n.studentName.toLowerCase() === (profile.name || userName).toLowerCase()
+          n.studentEmail.trim().toLowerCase() === normalizedEmail ||
+          n.studentName.trim().toLowerCase() === normalizedName
       ),
-    [nocRequests, userEmail, profile.name, userName]
+    [nocRequests, normalizedEmail, normalizedName]
   );
 
   const myConsents = useMemo(
     () =>
       parentConsents.filter(
         (c) =>
-          c.studentEmail === userEmail ||
-          c.studentName.toLowerCase() === (profile.name || userName).toLowerCase()
+          c.studentEmail.trim().toLowerCase() === normalizedEmail ||
+          c.studentName.trim().toLowerCase() === normalizedName
       ),
-    [parentConsents, userEmail, profile.name, userName]
+    [parentConsents, normalizedEmail, normalizedName]
   );
 
   const myLeaves = useMemo(
     () =>
       leaveRequests.filter(
         (lv) =>
-          lv.studentEmail === userEmail ||
-          lv.studentName.toLowerCase() === (profile.name || userName).toLowerCase()
+          lv.studentEmail.trim().toLowerCase() === normalizedEmail ||
+          lv.studentName.trim().toLowerCase() === normalizedName
       ),
-    [leaveRequests, userEmail, profile.name, userName]
+    [leaveRequests, normalizedEmail, normalizedName]
+  );
+
+  const myClearanceApps = useMemo(
+    () =>
+      applications.filter(
+        (a) =>
+          a.applicantEmail.trim().toLowerCase() === normalizedEmail &&
+          (a.facultyApproval || a.attachedNocNumber || a.attachedConsentCode)
+      ),
+    [applications, normalizedEmail]
   );
 
   useEffect(() => {
@@ -395,6 +411,74 @@ export const StudentApprovalsView: React.FC<StudentApprovalsViewProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Application Program Clearances Banner (Faculty-Signed Applications + Attached NOC & Consent) */}
+      {myClearanceApps.length > 0 && (
+        <div className="bg-white dark:bg-[#131d33] border border-[#dbe3f0] dark:border-[#24324d] rounded-2xl p-4 sm:p-5 space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <h3 className="text-sm font-bold flex items-center gap-2">
+                <Award className="w-4 h-4 text-[#12805f] dark:text-[#5fe0b6]" />
+                <span>Application Program Clearances ({myClearanceApps.length})</span>
+              </h3>
+              <p className="text-xs text-[#5b6b86] dark:text-[#9fb0cc]">
+                Faculty-signed applications with attached NOC & Parent Consent Sheet confirmed with Organizers
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {myClearanceApps.map((app) => {
+              const approval = app.facultyApproval;
+              return (
+                <div
+                  key={app.id}
+                  className="p-3.5 rounded-xl bg-[#f8fafe] dark:bg-[#0e1626] border border-[#dbe3f0] dark:border-[#24324d] flex items-center justify-between gap-3"
+                >
+                  <div className="min-w-0 space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-xs font-bold truncate">
+                        {app.company} · {app.roleTitle}
+                      </p>
+                      <span
+                        className={`text-[10px] font-bold ${
+                          approval?.status === 'Approved'
+                            ? 'text-emerald-600 dark:text-emerald-400'
+                            : approval?.status === 'Rejected'
+                            ? 'text-rose-600 dark:text-rose-400'
+                            : 'text-amber-600 dark:text-amber-400'
+                        }`}
+                      >
+                        {approval?.status === 'Approved'
+                          ? 'Open / Allowed for Program'
+                          : approval?.status === 'Rejected'
+                          ? 'Not Cleared'
+                          : 'Pending Faculty Sign'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] font-mono text-[#5b6b86] dark:text-[#9fb0cc] truncate">
+                      NOC: {app.attachedNocNumber || '—'} · Consent:{' '}
+                      {app.attachedConsentCode || '—'}
+                    </p>
+                    {app.organizerConfirmedAllowed && (
+                      <p className="text-[10px] font-bold text-[#12805f] dark:text-[#5fe0b6]">
+                        Organizer Confirmed Entry ({formatShortDate(app.organizerConfirmedAt || todayIso())})
+                      </p>
+                    )}
+                  </div>
+                  {approval?.digitalSignature && (
+                    <img
+                      src={approval.digitalSignature.signatureDataUrl}
+                      alt={`Faculty signature by ${approval.digitalSignature.signerName}`}
+                      className="h-10 w-24 object-contain bg-white rounded-lg border border-[#dbe3f0] px-1 shrink-0"
+                    />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Sub-navigation tabs */}
       <div className="bg-white dark:bg-[#131d33] border border-[#dbe3f0] dark:border-[#24324d] rounded-2xl p-2 inline-flex flex-wrap gap-1.5">

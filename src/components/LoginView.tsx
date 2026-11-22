@@ -46,9 +46,21 @@ export const LoginView: React.FC<LoginViewProps> = ({
       onSelectPreferredRole?.(role);
       await signInWithPopup(auth, googleAuthProvider);
     } catch (err: unknown) {
+      const code =
+        typeof err === 'object' && err !== null && 'code' in err
+          ? String((err as { code?: string }).code || '')
+          : '';
       const msg = err instanceof Error ? err.message : 'Google sign-in failed.';
-      if (!msg.includes('popup-closed-by-user')) {
-        setError('Could not complete Google Sign-In. Please allow popups and try again.');
+      if (code === 'auth/popup-closed-by-user' || msg.includes('popup-closed-by-user')) {
+        setError('Google sign-in popup was closed before completing.');
+      } else if (code === 'auth/popup-blocked' || msg.includes('popup-blocked')) {
+        setError('Browser blocked the Google popup. Please allow popups for this site and click Continue with Google again.');
+      } else if (code === 'auth/unauthorized-domain' || msg.includes('unauthorized-domain')) {
+        setError(`Domain "${window.location.hostname}" is not yet authorized in Firebase Authentication settings.`);
+      } else if (code === 'auth/network-request-failed') {
+        setError('Network error reaching Google sign-in. Check your connection and try again.');
+      } else if (code !== 'auth/cancelled-popup-request') {
+        setError(msg || 'Could not complete Google Sign-In. Please allow popups and try again.');
       }
     } finally {
       setGoogleLoading(false);
@@ -93,6 +105,10 @@ export const LoginView: React.FC<LoginViewProps> = ({
         organization: role === 'organizer' ? organization.trim() || derivedName : undefined,
         designation: role === 'faculty' ? organization.trim() || 'Faculty Leave Coordinator' : undefined,
         verified: role !== 'learner',
+        lastLoginAt: new Date().toISOString(),
+        lastLoginMethod: 'local',
+        loginCount: 1,
+        onboardingCompleted: false,
       },
       role === 'learner'
         ? {
@@ -110,6 +126,10 @@ export const LoginView: React.FC<LoginViewProps> = ({
       name: 'Vishal Tekmal',
       email: 'vishal.tekmal@ifheindia.org',
       role: 'learner',
+      lastLoginAt: new Date().toISOString(),
+      lastLoginMethod: 'local',
+      loginCount: 1,
+      onboardingCompleted: false,
     });
   };
 
@@ -121,6 +141,10 @@ export const LoginView: React.FC<LoginViewProps> = ({
       role: 'faculty',
       designation: 'Faculty Placement & Leave Coordinator, CSE',
       verified: true,
+      lastLoginAt: new Date().toISOString(),
+      lastLoginMethod: 'local',
+      loginCount: 1,
+      onboardingCompleted: false,
     });
   };
 
@@ -132,6 +156,10 @@ export const LoginView: React.FC<LoginViewProps> = ({
       role: 'organizer',
       organization: 'TechCorp India',
       verified: true,
+      lastLoginAt: new Date().toISOString(),
+      lastLoginMethod: 'local',
+      loginCount: 1,
+      onboardingCompleted: false,
     });
   };
 
@@ -284,7 +312,11 @@ export const LoginView: React.FC<LoginViewProps> = ({
                   d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.62l3.99 3.14c.95-2.85 3.6-4.96 6.72-4.96Z"
                 />
               </svg>
-              <span>{googleLoading ? 'Signing in with Google...' : 'Continue with Google'}</span>
+              <span>
+                {googleLoading
+                  ? 'Connecting with Google...'
+                  : `Continue with Google · ${role === 'faculty' ? 'Faculty' : role === 'organizer' ? 'Organizer' : 'Student'}`}
+              </span>
             </button>
 
             <div className="relative flex items-center justify-center my-4">

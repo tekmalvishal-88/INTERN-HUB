@@ -16,17 +16,22 @@ import {
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from './firebase';
 import type {
+  AiPersonalizationResult,
   ApplicationRecord,
   ApplicationStage,
   DigitalSignatureRecord,
+  FacultyApplicationApproval,
   LeaveRequest,
   NocRequest,
   Opportunity,
   ParentConsentSheet,
+  ProgramClearanceStatus,
   StudentEventItem,
   StudentProfile,
   StudentScheduleRecord,
   UserAccount,
+  UserActivityLog,
+  UserPersonalization,
   UserRole,
 } from '../types';
 import {
@@ -66,10 +71,64 @@ function stripUndefined<T extends Record<string, unknown>>(obj: T): T {
   return out as T;
 }
 
+function serializeFacultyApproval(
+  approval?: FacultyApplicationApproval
+): Record<string, unknown> | undefined {
+  if (!approval) return undefined;
+  const sig = approval.digitalSignature
+    ? stripUndefined({
+        signerName: clampStr(approval.digitalSignature.signerName, 120),
+        signerDesignation: clampStr(approval.digitalSignature.signerDesignation, 140),
+        signatureDataUrl: clampStr(approval.digitalSignature.signatureDataUrl, 250000),
+        signedAt: clampStr(approval.digitalSignature.signedAt, 20),
+        verificationCode: clampStr(approval.digitalSignature.verificationCode, 60),
+        remarks: approval.digitalSignature.remarks
+          ? clampStr(approval.digitalSignature.remarks, 500)
+          : undefined,
+      })
+    : undefined;
+  return stripUndefined({
+    status: approval.status,
+    programClearance: approval.programClearance,
+    digitalSignature: sig,
+  });
+}
+
+function serializeApplicationDetails(
+  details?: ApplicationRecord['applicationDetails']
+): Record<string, unknown> | undefined {
+  if (!details) return undefined;
+  return stripUndefined({
+    fullName: clampStr(details.fullName, 120),
+    email: clampStr(details.email, 200),
+    rollNumber: clampStr(details.rollNumber, 40),
+    branch: clampStr(details.branch, 120),
+    semester: clampSem(details.semester),
+    cgpa: clampStr(details.cgpa, 40),
+    resumeUsed: clampStr(details.resumeUsed, 180),
+    portfolioUrl: clampStr(details.portfolioUrl, 300),
+    availability: clampStr(details.availability, 120),
+    coverNote: clampStr(details.coverNote, 1000),
+    attachedNocId: details.attachedNocId ? clampStr(details.attachedNocId, 128) : undefined,
+    attachedNocNumber: details.attachedNocNumber
+      ? clampStr(details.attachedNocNumber, 80)
+      : undefined,
+    attachedConsentId: details.attachedConsentId
+      ? clampStr(details.attachedConsentId, 128)
+      : undefined,
+    attachedConsentCode: details.attachedConsentCode
+      ? clampStr(details.attachedConsentCode, 80)
+      : undefined,
+    confirmedCriteria: Boolean(details.confirmedCriteria),
+    confirmedExamCompliance: Boolean(details.confirmedExamCompliance),
+    confirmedAuthenticity: Boolean(details.confirmedAuthenticity),
+  });
+}
+
 function buildStarterProfileForUser(firebaseUser: FirebaseUser): StudentProfile {
   const email = (firebaseUser.email || 'student@campus.edu').toLowerCase();
   const displayName = firebaseUser.displayName?.trim() || email.split('@')[0] || 'InternHub Student';
-  const isDefaultDemoUser = email.includes('vishal');
+  const isDefaultDemoUser = email === 'vishal.tekmal@ifheindia.org';
 
   if (isDefaultDemoUser) {
     return {
@@ -91,35 +150,18 @@ function buildStarterProfileForUser(firebaseUser: FirebaseUser): StudentProfile 
     gradYear: '2027',
     location: 'Hyderabad, India',
     skills: ['Python', 'SQL', 'React', 'TypeScript', 'Git'],
-    resumeName: `${firstName}_Software_Resume_2026.pdf`,
+    resumeName: `${firstName}_Resume_2026.pdf`,
     resumes: [
       {
         id: 'res-1',
-        name: `${firstName}_Software_Resume_2026.pdf`,
+        name: `${firstName}_Resume_2026.pdf`,
         targetRole: 'Full Stack & Software Engineering',
         updatedAt: offsetDate(-1),
         sizeLabel: '220 KB',
         isDefault: true,
       },
-      {
-        id: 'res-2',
-        name: `${firstName}_Data_Analytics_2026.pdf`,
-        targetRole: 'Data & SQL Analytics',
-        updatedAt: offsetDate(-4),
-        sizeLabel: '204 KB',
-        isDefault: false,
-      },
     ],
-    projects: [
-      {
-        id: 'prj-1',
-        title: 'Campus Placement & Exam Scheduler',
-        role: 'Full Stack Developer',
-        techStack: 'React · TypeScript · Firestore',
-        summary: 'Automated skill matching and exam-safe opportunity tracking portal.',
-        url: 'https://github.com',
-      },
-    ],
+    projects: [],
     githubUrl: 'https://github.com',
     linkedinUrl: 'https://linkedin.com',
     portfolioUrl: 'https://internhub.app',
@@ -206,11 +248,20 @@ export async function ensureUserWorkspace(
 ): Promise<{ account: UserAccount; darkMode: boolean; isNewWorkspace: boolean }> {
   const uid = safeId(firebaseUser.uid);
   const userRef = doc(db, 'users', uid);
+  const nowIso = new Date().toISOString();
 
   try {
     const snap = await getDoc(userRef);
     if (snap.exists()) {
       const data = snap.data();
+      const nextLoginCount = (Number(data.loginCount) || 0) + 1;
+      await updateDoc(userRef, {
+        lastLoginAt: nowIso,
+        lastLoginMethod: 'google',
+        loginCount: nextLoginCount,
+        updatedAt: serverTimestamp(),
+      });
+
       return {
         account: {
           id: uid,
@@ -220,6 +271,12 @@ export async function ensureUserWorkspace(
           organization: data.organization ? String(data.organization) : undefined,
           designation: data.designation ? String(data.designation) : undefined,
           verified: Boolean(firebaseUser.emailVerified),
+          lastLoginAt: nowIso,
+          lastLoginMethod: 'google',
+          loginCount: nextLoginCount,
+          onboardingCompleted: Boolean(data.onboardingCompleted),
+          personalization: (data.personalization as UserPersonalization | undefined) || undefined,
+          aiSuggestions: (data.aiSuggestions as AiPersonalizationResult | undefined) || undefined,
         },
         darkMode: Boolean(data.darkMode),
         isNewWorkspace: false,
@@ -228,7 +285,7 @@ export async function ensureUserWorkspace(
 
     const email = firebaseUser.email || 'user@internhub.app';
     const displayName = firebaseUser.displayName?.trim() || email.split('@')[0] || 'InternHub User';
-    const isVishal = email.toLowerCase().includes('vishal');
+    const isVishal = email.toLowerCase() === 'vishal.tekmal@ifheindia.org';
     const starterProfile = buildStarterProfileForUser(firebaseUser);
 
     await setDoc(userRef, {
@@ -239,6 +296,10 @@ export async function ensureUserWorkspace(
       organization: preferredRole === 'organizer' ? 'Campus Partner' : 'IFHE Hyderabad',
       designation: preferredRole === 'faculty' ? 'Faculty Coordinator' : 'Student',
       darkMode: Boolean(darkMode),
+      lastLoginAt: nowIso,
+      lastLoginMethod: 'google',
+      loginCount: 1,
+      onboardingCompleted: false,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
@@ -253,6 +314,7 @@ export async function ensureUserWorkspace(
     if (isVishal) {
       for (const appRec of INITIAL_APPLICATIONS) {
         const appId = safeId(appRec.id);
+        const isSelfApp = appRec.applicantEmail.toLowerCase().includes('vishal');
         batch.set(
           doc(db, 'users', uid, 'applications', appId),
           stripUndefined({
@@ -261,17 +323,36 @@ export async function ensureUserWorkspace(
             company: clampStr(appRec.company, 140),
             roleTitle: clampStr(appRec.roleTitle, 160),
             location: clampStr(appRec.location, 120),
-            applicantEmail: clampStr(email, 200),
-            applicantName: clampStr(displayName, 120),
-            applicantBranch: clampStr(starterProfile.branch, 120),
-            applicantSemester: clampSem(starterProfile.semester),
-            applicantSkills: starterProfile.skills.slice(0, 30),
+            applicantEmail: clampStr(isSelfApp ? email : appRec.applicantEmail, 200),
+            applicantName: clampStr(isSelfApp ? displayName : appRec.applicantName, 120),
+            applicantBranch: clampStr(appRec.applicantBranch || starterProfile.branch, 120),
+            applicantSemester: clampSem(appRec.applicantSemester ?? starterProfile.semester),
+            applicantSkills: (appRec.applicantSkills || starterProfile.skills).slice(0, 30),
             resumeUsed: clampStr(appRec.resumeUsed || starterProfile.resumeName, 180),
             stage: appRec.stage,
             appliedOn: clampStr(appRec.appliedOn, 20, todayIso()),
             nextAction: appRec.nextAction ? clampStr(appRec.nextAction, 300) : undefined,
             notes: appRec.notes ? clampStr(appRec.notes, 1000) : undefined,
             isExternal: Boolean(appRec.isExternal),
+            applicationDetails: serializeApplicationDetails(appRec.applicationDetails),
+            attachedNocId: appRec.attachedNocId ? clampStr(appRec.attachedNocId, 128) : undefined,
+            attachedNocNumber: appRec.attachedNocNumber
+              ? clampStr(appRec.attachedNocNumber, 80)
+              : undefined,
+            attachedConsentId: appRec.attachedConsentId
+              ? clampStr(appRec.attachedConsentId, 128)
+              : undefined,
+            attachedConsentCode: appRec.attachedConsentCode
+              ? clampStr(appRec.attachedConsentCode, 80)
+              : undefined,
+            facultyApproval: serializeFacultyApproval(appRec.facultyApproval),
+            organizerConfirmedAllowed:
+              typeof appRec.organizerConfirmedAllowed === 'boolean'
+                ? appRec.organizerConfirmedAllowed
+                : undefined,
+            organizerConfirmedAt: appRec.organizerConfirmedAt
+              ? clampStr(appRec.organizerConfirmedAt, 20)
+              : undefined,
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp(),
           })
@@ -429,6 +510,10 @@ export async function ensureUserWorkspace(
         organization: preferredRole === 'organizer' ? 'Campus Partner' : 'IFHE Hyderabad',
         designation: preferredRole === 'faculty' ? 'Faculty Coordinator' : 'Student',
         verified: Boolean(firebaseUser.emailVerified),
+        lastLoginAt: nowIso,
+        lastLoginMethod: 'google',
+        loginCount: 1,
+        onboardingCompleted: false,
       },
       darkMode,
       isNewWorkspace: true,
@@ -440,7 +525,12 @@ export async function ensureUserWorkspace(
 
 export async function updateUserAccountPrefs(
   uid: string,
-  updates: Partial<{ activeRole: UserRole; darkMode: boolean; name: string }>
+  updates: Partial<{
+    activeRole: UserRole;
+    darkMode: boolean;
+    name: string;
+    onboardingCompleted: boolean;
+  }>
 ): Promise<void> {
   const safeUid = safeId(uid);
   const path = `users/${safeUid}`;
@@ -451,6 +541,76 @@ export async function updateUserAccountPrefs(
     });
   } catch (err) {
     handleFirestoreError(err, OperationType.UPDATE, path);
+  }
+}
+
+export async function saveUserPersonalization(
+  uid: string,
+  personalization: UserPersonalization,
+  aiSuggestions: AiPersonalizationResult
+): Promise<void> {
+  const safeUid = safeId(uid);
+  const path = `users/${safeUid}`;
+  try {
+    await updateDoc(doc(db, 'users', safeUid), {
+      personalization: stripUndefined({
+        preferredDomains: (personalization.preferredDomains || []).slice(0, 6),
+        preferredModes: (personalization.preferredModes || []).slice(0, 4),
+        preferredLocations: (personalization.preferredLocations || []).slice(0, 8),
+        minStipend: Math.max(0, Number(personalization.minStipend) || 0),
+        careerGoal: clampStr(personalization.careerGoal, 300),
+        examSafeOnly: Boolean(personalization.examSafeOnly),
+        facultyDepartment: personalization.facultyDepartment
+          ? clampStr(personalization.facultyDepartment, 120)
+          : undefined,
+        facultyFocus: personalization.facultyFocus
+          ? clampStr(personalization.facultyFocus, 180)
+          : undefined,
+        organizerCompany: personalization.organizerCompany
+          ? clampStr(personalization.organizerCompany, 140)
+          : undefined,
+        organizerHiringDomains: personalization.organizerHiringDomains
+          ? personalization.organizerHiringDomains.slice(0, 6)
+          : undefined,
+      }),
+      aiSuggestions: {
+        summary: clampStr(aiSuggestions.summary, 600),
+        skillAdvice: (aiSuggestions.skillAdvice || []).slice(0, 5).map((s) => clampStr(s, 80)),
+        recommendations: (aiSuggestions.recommendations || []).slice(0, 4).map((r) => ({
+          opportunityId: clampStr(r.opportunityId, 128),
+          fitTag: clampStr(r.fitTag, 60),
+          reason: clampStr(r.reason, 260),
+        })),
+        generatedAt: clampStr(aiSuggestions.generatedAt, 40),
+      },
+      onboardingCompleted: true,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, path);
+  }
+}
+
+export async function appendUserActivityLog(
+  uid: string,
+  log: Omit<UserActivityLog, 'id'>
+): Promise<void> {
+  const safeUid = safeId(uid);
+  const logId = safeId(`act_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`);
+  const path = `users/${safeUid}/activityLogs/${logId}`;
+  try {
+    await setDoc(doc(db, 'users', safeUid, 'activityLogs', logId), {
+      ownerUid: safeUid,
+      role: log.role,
+      actionType: clampStr(log.actionType, 48),
+      title: clampStr(log.title, 160),
+      details: clampStr(log.details, 400),
+      deviceSummary: clampStr(log.deviceSummary, 140),
+      occurredAt: clampStr(log.occurredAt, 40),
+      createdAt: serverTimestamp(),
+    });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.CREATE, path);
   }
 }
 
@@ -477,6 +637,9 @@ export async function saveUserApplication(uid: string, appRec: ApplicationRecord
   const appId = safeId(appRec.id);
   const path = `users/${safeUid}/applications/${appId}`;
   try {
+    const cleanDetails = serializeApplicationDetails(appRec.applicationDetails);
+    const cleanApproval = serializeFacultyApproval(appRec.facultyApproval);
+
     await setDoc(
       doc(db, 'users', safeUid, 'applications', appId),
       stripUndefined({
@@ -496,6 +659,25 @@ export async function saveUserApplication(uid: string, appRec: ApplicationRecord
         nextAction: appRec.nextAction ? clampStr(appRec.nextAction, 300) : undefined,
         notes: appRec.notes ? clampStr(appRec.notes, 1000) : undefined,
         isExternal: Boolean(appRec.isExternal),
+        applicationDetails: cleanDetails,
+        attachedNocId: appRec.attachedNocId ? clampStr(appRec.attachedNocId, 128) : undefined,
+        attachedNocNumber: appRec.attachedNocNumber
+          ? clampStr(appRec.attachedNocNumber, 80)
+          : undefined,
+        attachedConsentId: appRec.attachedConsentId
+          ? clampStr(appRec.attachedConsentId, 128)
+          : undefined,
+        attachedConsentCode: appRec.attachedConsentCode
+          ? clampStr(appRec.attachedConsentCode, 80)
+          : undefined,
+        facultyApproval: cleanApproval,
+        organizerConfirmedAllowed:
+          typeof appRec.organizerConfirmedAllowed === 'boolean'
+            ? appRec.organizerConfirmedAllowed
+            : undefined,
+        organizerConfirmedAt: appRec.organizerConfirmedAt
+          ? clampStr(appRec.organizerConfirmedAt, 20)
+          : undefined,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       })
@@ -508,14 +690,52 @@ export async function saveUserApplication(uid: string, appRec: ApplicationRecord
 export async function updateUserApplication(
   uid: string,
   appId: string,
-  updates: Partial<{ stage: ApplicationStage; resumeUsed: string; nextAction: string; notes: string }>
+  updates: Partial<{
+    stage: ApplicationStage;
+    resumeUsed: string;
+    nextAction: string;
+    notes: string;
+    attachedNocId: string;
+    attachedNocNumber: string;
+    attachedConsentId: string;
+    attachedConsentCode: string;
+    facultyApproval: FacultyApplicationApproval;
+    organizerConfirmedAllowed: boolean;
+    organizerConfirmedAt: string;
+  }>
 ): Promise<void> {
   const safeUid = safeId(uid);
   const id = safeId(appId);
   const path = `users/${safeUid}/applications/${id}`;
   try {
+    const cleanUpdates = stripUndefined({
+      ...updates,
+      attachedNocId:
+        updates.attachedNocId !== undefined ? clampStr(updates.attachedNocId, 128) : undefined,
+      attachedNocNumber:
+        updates.attachedNocNumber !== undefined
+          ? clampStr(updates.attachedNocNumber, 80)
+          : undefined,
+      attachedConsentId:
+        updates.attachedConsentId !== undefined
+          ? clampStr(updates.attachedConsentId, 128)
+          : undefined,
+      attachedConsentCode:
+        updates.attachedConsentCode !== undefined
+          ? clampStr(updates.attachedConsentCode, 80)
+          : undefined,
+      facultyApproval:
+        updates.facultyApproval !== undefined
+          ? serializeFacultyApproval(updates.facultyApproval)
+          : undefined,
+      organizerConfirmedAt:
+        updates.organizerConfirmedAt !== undefined
+          ? clampStr(updates.organizerConfirmedAt, 20)
+          : undefined,
+    } as Record<string, unknown>);
+
     await updateDoc(doc(db, 'users', safeUid, 'applications', id), {
-      ...stripUndefined(updates as Record<string, unknown>),
+      ...cleanUpdates,
       updatedAt: serverTimestamp(),
     });
   } catch (err) {
@@ -783,9 +1003,17 @@ export async function seedOpportunitiesIfEmpty(uid: string): Promise<void> {
 export async function publishOpportunityToHub(uid: string, opp: Opportunity): Promise<void> {
   const safeUid = safeId(uid);
   const oppId = safeId(opp.id);
+  const oppRef = doc(db, 'opportunities', oppId);
   const path = `opportunities/${oppId}`;
   try {
-    await setDoc(doc(db, 'opportunities', oppId), serializeOpportunityPayload(safeUid, opp, true));
+    const existingSnap = await getDoc(oppRef);
+    if (!existingSnap.exists()) {
+      await setDoc(oppRef, serializeOpportunityPayload(safeUid, opp, true));
+    } else if (existingSnap.data().createdByUid === safeUid) {
+      const updatePayload = serializeOpportunityPayload(safeUid, opp, false);
+      delete updatePayload.createdByUid;
+      await updateDoc(oppRef, updatePayload);
+    }
   } catch (err) {
     handleFirestoreError(err, OperationType.CREATE, path);
   }
@@ -862,10 +1090,9 @@ const LIVE_HUB_DROPS: Array<Omit<Opportunity, 'deadline' | 'startDate' | 'endDat
 
 export async function syncLiveOpportunityHub(
   uid: string,
-  currentOpportunities: Opportunity[]
+  _currentOpportunities: Opportunity[] = []
 ): Promise<number> {
   const safeUid = safeId(uid);
-  const existingIds = new Set(currentOpportunities.map((o) => o.id));
   const today = todayIso();
   let updatedCount = 0;
 
@@ -894,27 +1121,42 @@ export async function syncLiveOpportunityHub(
         verified: true,
       };
 
-      if (!existingIds.has(opp.id)) {
-        await setDoc(
-          doc(db, 'opportunities', safeId(opp.id)),
-          serializeOpportunityPayload(safeUid, opp, true)
-        );
-        updatedCount += 1;
-      }
-    }
+      const oppRef = doc(db, 'opportunities', safeId(opp.id));
+      const existingSnap = await getDoc(oppRef);
 
-    // Also refresh deadlines on any expired opportunities originally created by this user
-    for (const existingOpp of currentOpportunities) {
-      if (existingOpp.deadline < today) {
-        const oppRef = doc(db, 'opportunities', safeId(existingOpp.id));
-        const snap = await getDoc(oppRef);
-        if (snap.exists() && snap.data().createdByUid === safeUid) {
+      if (!existingSnap.exists()) {
+        await setDoc(oppRef, serializeOpportunityPayload(safeUid, opp, true));
+        updatedCount += 1;
+      } else {
+        const existingData = existingSnap.data();
+        if (
+          existingData.createdByUid === safeUid &&
+          String(existingData.deadline || '') < today
+        ) {
           await updateDoc(oppRef, {
-            deadline: offsetDate(18),
+            deadline: opp.deadline,
             updatedAt: serverTimestamp(),
           });
           updatedCount += 1;
         }
+      }
+    }
+
+    // Refresh deadlines on any expired opportunities originally created by this user
+    const myOppsQuery = query(
+      collection(db, 'opportunities'),
+      where('verified', '==', true),
+      where('createdByUid', '==', safeUid)
+    );
+    const myOppsSnap = await getDocs(myOppsQuery);
+    for (const docSnap of myOppsSnap.docs) {
+      const data = docSnap.data();
+      if (String(data.deadline || '') < today) {
+        await updateDoc(docSnap.ref, {
+          deadline: offsetDate(18),
+          updatedAt: serverTimestamp(),
+        });
+        updatedCount += 1;
       }
     }
 
@@ -927,12 +1169,14 @@ export async function syncLiveOpportunityHub(
 export function subscribeToUserWorkspace(
   uid: string,
   callbacks: {
+    onAccountMeta?: (meta: Partial<UserAccount>) => void;
     onProfile: (profile: StudentProfile) => void;
     onApplications: (apps: ApplicationRecord[]) => void;
     onLeaves: (leaves: LeaveRequest[]) => void;
     onNocs: (nocs: NocRequest[]) => void;
     onParentConsents: (sheets: ParentConsentSheet[]) => void;
     onSchedules: (schedules: StudentScheduleRecord[]) => void;
+    onActivityLogs?: (logs: UserActivityLog[]) => void;
   },
   onError?: (err: Error) => void
 ): Unsubscribe {
@@ -948,6 +1192,29 @@ export function subscribeToUserWorkspace(
       }
     }
   };
+
+  if (callbacks.onAccountMeta) {
+    const onAccountMeta = callbacks.onAccountMeta;
+    unsubs.push(
+      onSnapshot(
+        doc(db, 'users', safeUid),
+        (snap) => {
+          if (snap.exists()) {
+            const d = snap.data();
+            onAccountMeta({
+              lastLoginAt: d.lastLoginAt ? String(d.lastLoginAt) : undefined,
+              lastLoginMethod: (d.lastLoginMethod as 'google' | 'local') || undefined,
+              loginCount: typeof d.loginCount === 'number' ? d.loginCount : undefined,
+              onboardingCompleted: Boolean(d.onboardingCompleted),
+              personalization: (d.personalization as UserPersonalization | undefined) || undefined,
+              aiSuggestions: (d.aiSuggestions as AiPersonalizationResult | undefined) || undefined,
+            });
+          }
+        },
+        (err) => forwardErr(err, OperationType.GET, `users/${safeUid}`)
+      )
+    );
+  }
 
   unsubs.push(
     onSnapshot(
@@ -1008,6 +1275,26 @@ export function subscribeToUserWorkspace(
             nextAction: d.nextAction ? String(d.nextAction) : undefined,
             notes: d.notes ? String(d.notes) : undefined,
             isExternal: Boolean(d.isExternal),
+            applicationDetails: d.applicationDetails || undefined,
+            attachedNocId: d.attachedNocId ? String(d.attachedNocId) : undefined,
+            attachedNocNumber: d.attachedNocNumber ? String(d.attachedNocNumber) : undefined,
+            attachedConsentId: d.attachedConsentId ? String(d.attachedConsentId) : undefined,
+            attachedConsentCode: d.attachedConsentCode ? String(d.attachedConsentCode) : undefined,
+            facultyApproval: d.facultyApproval
+              ? ({
+                  status: d.facultyApproval.status || 'Pending',
+                  programClearance: (d.facultyApproval.programClearance ||
+                    'Pending Review') as ProgramClearanceStatus,
+                  digitalSignature: d.facultyApproval.digitalSignature || undefined,
+                } as FacultyApplicationApproval)
+              : undefined,
+            organizerConfirmedAllowed:
+              typeof d.organizerConfirmedAllowed === 'boolean'
+                ? d.organizerConfirmedAllowed
+                : undefined,
+            organizerConfirmedAt: d.organizerConfirmedAt
+              ? String(d.organizerConfirmedAt)
+              : undefined,
           } as ApplicationRecord;
         });
         list.sort((a, b) => b.appliedOn.localeCompare(a.appliedOn));
@@ -1160,6 +1447,32 @@ export function subscribeToUserWorkspace(
       (err) => forwardErr(err, OperationType.LIST, `users/${safeUid}/studentSchedules`)
     )
   );
+
+  if (callbacks.onActivityLogs) {
+    const onActivityLogs = callbacks.onActivityLogs;
+    unsubs.push(
+      onSnapshot(
+        subQuery('activityLogs'),
+        (snap) => {
+          const logs = snap.docs.map((docSnap) => {
+            const d = docSnap.data();
+            return {
+              id: docSnap.id,
+              role: d.role as UserRole,
+              actionType: d.actionType,
+              title: String(d.title || ''),
+              details: String(d.details || ''),
+              deviceSummary: String(d.deviceSummary || ''),
+              occurredAt: String(d.occurredAt || ''),
+            } as UserActivityLog;
+          });
+          logs.sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
+          onActivityLogs(logs);
+        },
+        (err) => forwardErr(err, OperationType.LIST, `users/${safeUid}/activityLogs`)
+      )
+    );
+  }
 
   return () => {
     for (const unsub of unsubs) {

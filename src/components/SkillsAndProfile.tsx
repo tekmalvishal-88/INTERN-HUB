@@ -755,6 +755,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const [newSkill, setNewSkill] = useState('');
   const [savedNotice, setSavedNotice] = useState(false);
 
+  useEffect(() => {
+    if (!editing) {
+      setForm(profile);
+    }
+  }, [profile, editing]);
+
   // New project form state
   const [addingProject, setAddingProject] = useState(false);
   const [projTitle, setProjTitle] = useState('');
@@ -865,7 +871,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         {/* Profile Identity Row */}
         <div className="px-6 pb-6">
           <div className="-mt-11 mb-4 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-            <GoogleVAvatar size="xl" showRing />
+            <GoogleVAvatar name={form.name} email={userEmail} role="learner" size="xl" showRing />
             <div className="flex flex-wrap items-center gap-2 text-xs font-semibold">
               {form.githubUrl && (
                 <a

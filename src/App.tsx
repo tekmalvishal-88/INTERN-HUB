@@ -2,11 +2,14 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { onAuthStateChanged, signOut, type User as FirebaseUser } from 'firebase/auth';
 import { AnimatePresence, motion } from 'motion/react';
 import {
+  Activity,
+  Award,
   BarChart3,
   Bell,
   Briefcase,
   Building2,
   Calendar as CalendarIcon,
+  ChevronDown,
   Compass,
   FileCheck2,
   FileSignature,
@@ -18,6 +21,7 @@ import {
   Moon,
   PlusSquare,
   Search,
+  SlidersHorizontal,
   Sparkles,
   Sun,
   UserCheck,
@@ -36,6 +40,9 @@ import {
   INITIAL_STUDENT_SCHEDULES,
 } from './data/realData';
 import type {
+  ActivityActionType,
+  AiPersonalizationResult,
+  ApplicationCriteriaPayload,
   ApplicationRecord,
   ApplicationStage,
   FacultyTab,
@@ -51,6 +58,8 @@ import type {
   StudentProfile,
   StudentScheduleRecord,
   UserAccount,
+  UserActivityLog,
+  UserPersonalization,
   UserRole,
   WorkMode,
 } from './types';
@@ -64,10 +73,13 @@ import { ProfileView, SkillsView } from './components/SkillsAndProfile';
 import { OrganizerWorkspace } from './components/OrganizerWorkspace';
 import { FacultyWorkspace } from './components/FacultyWorkspace';
 import { AiAssistantDrawer } from './components/AiAssistantDrawer';
+import { PersonalizationModal } from './components/PersonalizationModal';
+import { ActivityHistoryModal } from './components/ActivityHistoryModal';
 import { GoogleVAvatar } from './components/GoogleVAvatar';
 import { OfflineIndicator, PWAInstallButton } from './components/PWAInstallButton';
 import { auth, testFirestoreConnection } from './lib/firebase';
 import {
+  appendUserActivityLog,
   createUserLeaveRequest,
   createUserNocRequest,
   createUserParentConsent,
@@ -75,6 +87,7 @@ import {
   ensureUserWorkspace,
   publishOpportunityToHub,
   saveUserApplication,
+  saveUserPersonalization,
   saveUserProfile,
   seedOpportunitiesIfEmpty,
   signUserLeaveRequest,
@@ -99,7 +112,13 @@ interface PersistedState {
   nocRequests: NocRequest[];
   parentConsents: ParentConsentSheet[];
   studentSchedules: StudentScheduleRecord[];
+  activityLogs: UserActivityLog[];
   darkMode: boolean;
+}
+
+function getDeviceSummary(): string {
+  const isTouch = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0;
+  return isTouch ? 'InternHub Web · Mobile/Touch' : 'InternHub Web · Desktop';
 }
 
 function loadInitialState(): PersistedState {
@@ -146,6 +165,7 @@ function loadInitialState(): PersistedState {
           Array.isArray(parsed.studentSchedules) && parsed.studentSchedules.length > 0
             ? parsed.studentSchedules
             : INITIAL_STUDENT_SCHEDULES,
+        activityLogs: Array.isArray(parsed.activityLogs) ? parsed.activityLogs : [],
         darkMode: Boolean(parsed.darkMode),
       };
     }
@@ -161,6 +181,7 @@ function loadInitialState(): PersistedState {
     nocRequests: INITIAL_NOC_REQUESTS,
     parentConsents: INITIAL_PARENT_CONSENTS,
     studentSchedules: INITIAL_STUDENT_SCHEDULES,
+    activityLogs: [],
     darkMode: false,
   };
 }
@@ -180,6 +201,7 @@ export default function App() {
   const [studentSchedules, setStudentSchedules] = useState<StudentScheduleRecord[]>(
     initial.studentSchedules
   );
+  const [activityLogs, setActivityLogs] = useState<UserActivityLog[]>(initial.activityLogs);
   const [darkMode, setDarkMode] = useState<boolean>(initial.darkMode);
 
   const [learnerTab, setLearnerTab] = useState<LearnerTab>('dashboard');
@@ -189,13 +211,17 @@ export default function App() {
   const [hubInitialSearch, setHubInitialSearch] = useState('');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
   const [aiInitialPrompt, setAiInitialPrompt] = useState<string | undefined>(undefined);
+  const [showPersonalization, setShowPersonalization] = useState(false);
+  const [showActivityModal, setShowActivityModal] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [isSyncingHub, setIsSyncingHub] = useState(false);
   const [fatalDbError, setFatalDbError] = useState<Error | null>(null);
   const preferredRoleRef = useRef<UserRole>('learner');
+  const recordedLoginForUidRef = useRef<string | null>(null);
 
   if (fatalDbError) {
     throw fatalDbError;
@@ -208,7 +234,7 @@ export default function App() {
         : {
             id: 'demo-learner',
             name: initial.profile.name || 'Vishal Tekmal',
-            email: 'vishal.tekmal@icfai.edu',
+            email: 'vishal.tekmal@ifheindia.org',
             role: 'learner',
           },
     faculty:
@@ -217,7 +243,7 @@ export default function App() {
         : {
             id: 'demo-faculty',
             name: 'Dr. Priya Rao',
-            email: 'priya.rao@icfai.edu',
+            email: 'priya.rao@ifheindia.org',
             role: 'faculty',
             organization: 'IFHE Hyderabad · CSE Dept',
             designation: 'Faculty Internship Coordinator',
@@ -253,6 +279,7 @@ export default function App() {
         nocRequests,
         parentConsents,
         studentSchedules,
+        activityLogs: activityLogs.slice(0, 120),
         darkMode,
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
@@ -268,12 +295,44 @@ export default function App() {
     nocRequests,
     parentConsents,
     studentSchedules,
+    activityLogs,
     darkMode,
   ]);
 
   const showToast = (msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(null), 3200);
+  };
+
+  const logActivity = (
+    actionType: ActivityActionType,
+    title: string,
+    details: string,
+    roleOverride?: UserRole,
+    explicitUid?: string
+  ) => {
+    const activeRole = roleOverride ?? user?.role ?? 'learner';
+    const entry: UserActivityLog = {
+      id: `act-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      role: activeRole,
+      actionType,
+      title,
+      details,
+      deviceSummary: getDeviceSummary(),
+      occurredAt: new Date().toISOString(),
+    };
+    setActivityLogs((prev) => [entry, ...prev].slice(0, 200));
+    const targetUid = explicitUid ?? firebaseUser?.uid;
+    if (targetUid) {
+      void appendUserActivityLog(targetUid, {
+        role: entry.role,
+        actionType: entry.actionType,
+        title: entry.title,
+        details: entry.details,
+        deviceSummary: entry.deviceSummary,
+        occurredAt: entry.occurredAt,
+      });
+    }
   };
 
   useEffect(() => {
@@ -299,6 +358,7 @@ export default function App() {
       setFirebaseUser(fbUser);
 
       if (!fbUser) {
+        recordedLoginForUidRef.current = null;
         return;
       }
 
@@ -312,15 +372,34 @@ export default function App() {
         setDarkMode(savedDark);
         setRoleAccounts((prev) => ({ ...prev, [account.role]: account }));
 
+        if (recordedLoginForUidRef.current !== fbUser.uid) {
+          recordedLoginForUidRef.current = fbUser.uid;
+          logActivity(
+            'login',
+            `Signed in via Google (${account.email})`,
+            `Login #${account.loginCount ?? 1} into ${account.role} workspace`,
+            account.role,
+            fbUser.uid
+          );
+        }
+
+        if (!account.onboardingCompleted) {
+          setShowPersonalization(true);
+        }
+
         unsubUserWs = subscribeToUserWorkspace(
           fbUser.uid,
           {
+            onAccountMeta: (meta) => {
+              setUser((prev) => (prev ? { ...prev, ...meta } : prev));
+            },
             onProfile: (p) => setProfile(p),
             onApplications: (apps) => setApplications(apps),
             onLeaves: (lvs) => setLeaveRequests(lvs),
             onNocs: (nocs) => setNocRequests(nocs),
             onParentConsents: (sheets) => setParentConsents(sheets),
             onSchedules: (stus) => setStudentSchedules(stus),
+            onActivityLogs: (logs) => setActivityLogs(logs),
           },
           (err) => setFatalDbError(err)
         );
@@ -332,10 +411,12 @@ export default function App() {
           (err) => setFatalDbError(err)
         );
 
-        await syncLiveOpportunityHub(fbUser.uid, INITIAL_OPPORTUNITIES);
+        await syncLiveOpportunityHub(fbUser.uid);
 
         hubInterval = setInterval(() => {
-          void syncLiveOpportunityHub(fbUser.uid, []);
+          void syncLiveOpportunityHub(fbUser.uid).catch((err) => {
+            setFatalDbError(err instanceof Error ? err : new Error('Failed to sync Opportunity Hub'));
+          });
         }, 5 * 60 * 1000);
 
         if (isNewWorkspace) {
@@ -359,21 +440,61 @@ export default function App() {
     account: UserAccount,
     setupDetails?: { branch?: string; semester?: number; college?: string }
   ) => {
+    const isDemoAccount = account.id.startsWith('demo-');
+    const firstName =
+      account.name
+        .trim()
+        .replace(/^(dr|prof|mr|mrs|ms)\.?\s+/i, '')
+        .split(/\s+/)[0] || 'User';
+
     setUser(account);
     setRoleAccounts((prev) => ({ ...prev, [account.role]: account }));
+    setGlobalSearch('');
+    setNotificationsOpen(false);
+    setAccountMenuOpen(false);
+    setMobileMenuOpen(false);
+
+    if (!isDemoAccount) {
+      setActivityLogs([]);
+      setProfile({
+        ...INITIAL_PROFILE,
+        name: account.name,
+        branch: setupDetails?.branch || 'Computer Science & Engineering',
+        semester: setupDetails?.semester || 5,
+        college: setupDetails?.college || 'Campus Partner University',
+        resumeName: `${firstName}_Resume_2026.pdf`,
+        resumes: [
+          {
+            id: `res-${Date.now()}`,
+            name: `${firstName}_Resume_2026.pdf`,
+            targetRole: 'Software & Analytics Internships',
+            updatedAt: todayIso(),
+            sizeLabel: '220 KB',
+            isDefault: true,
+          },
+        ],
+        projects: [],
+      });
+    } else if (account.id === 'demo-learner') {
+      setProfile(INITIAL_PROFILE);
+    }
+
+    const entry: UserActivityLog = {
+      id: `act-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      role: account.role,
+      actionType: 'login',
+      title: `Signed in (${account.email})`,
+      details: `Entered ${account.role} workspace via local session`,
+      deviceSummary: getDeviceSummary(),
+      occurredAt: new Date().toISOString(),
+    };
+    setActivityLogs((prev) => (isDemoAccount ? [entry, ...prev].slice(0, 200) : [entry]));
+
+    if (!account.onboardingCompleted) {
+      setShowPersonalization(true);
+    }
     if (account.role === 'learner') {
       setLearnerTab('dashboard');
-      if (setupDetails) {
-        setProfile((prev) => ({
-          ...prev,
-          name: account.name,
-          branch: setupDetails.branch || prev.branch,
-          semester: setupDetails.semester || prev.semester,
-          college: setupDetails.college || prev.college,
-        }));
-      } else if (account.id !== 'demo-learner') {
-        setProfile((prev) => ({ ...prev, name: account.name }));
-      }
     } else if (account.role === 'faculty') {
       setFacultyTab('approvals');
     } else {
@@ -406,9 +527,23 @@ export default function App() {
       setUser(updatedAccount);
       void updateUserAccountPrefs(firebaseUser.uid, { activeRole: nextRole });
     } else {
-      const targetAccount = roleAccounts[nextRole];
+      const targetAccount = {
+        ...roleAccounts[nextRole],
+        lastLoginAt: user?.lastLoginAt,
+        lastLoginMethod: user?.lastLoginMethod,
+        loginCount: user?.loginCount,
+        personalization: user?.personalization,
+        aiSuggestions: user?.aiSuggestions,
+        onboardingCompleted: user?.onboardingCompleted,
+      };
       setUser(targetAccount);
     }
+    logActivity(
+      'role_switch',
+      `Switched workspace to ${nextRole === 'faculty' ? 'Faculty' : nextRole === 'organizer' ? 'Organizer' : 'Student'}`,
+      `Active account: ${user?.email || ''}`,
+      nextRole
+    );
     setNotificationsOpen(false);
     setMobileMenuOpen(false);
     if (nextRole === 'learner') {
@@ -423,15 +558,18 @@ export default function App() {
     }
   };
 
-  const handleApply = (opp: Opportunity) => {
+  const handleApply = (opp: Opportunity, details?: ApplicationCriteriaPayload) => {
     if (!user) return;
+    const targetEmail = (details?.email || user.email).trim().toLowerCase();
     const already = applications.some(
-      (a) => a.opportunityId === opp.id && a.applicantEmail === user.email
+      (a) => a.opportunityId === opp.id && a.applicantEmail.trim().toLowerCase() === targetEmail
     );
     if (already) return;
 
     const chosenResume =
-      profile.resumes.find((r) => r.isDefault)?.name || profile.resumeName;
+      details?.resumeUsed ||
+      profile.resumes.find((r) => r.isDefault)?.name ||
+      profile.resumeName;
 
     const newApp: ApplicationRecord = {
       id: `app-${Date.now()}`,
@@ -439,21 +577,86 @@ export default function App() {
       company: opp.company,
       roleTitle: opp.title,
       location: opp.location,
-      applicantEmail: user.email,
-      applicantName: profile.name || user.name,
-      applicantBranch: profile.branch,
-      applicantSemester: profile.semester,
+      applicantEmail: details?.email || user.email,
+      applicantName: details?.fullName || profile.name || user.name,
+      applicantBranch: details?.branch || profile.branch,
+      applicantSemester: details?.semester || profile.semester,
       applicantSkills: profile.skills,
       resumeUsed: chosenResume,
       stage: 'Applied',
       appliedOn: todayIso(),
-      nextAction: `Submitted with ${chosenResume}`,
+      nextAction: details
+        ? `Criteria verified · Available: ${details.availability} · Pending Faculty signature`
+        : `Submitted with ${chosenResume} · Pending Faculty signature`,
+      notes: details?.coverNote,
+      applicationDetails: details,
+      attachedNocId: details?.attachedNocId,
+      attachedNocNumber: details?.attachedNocNumber,
+      attachedConsentId: details?.attachedConsentId,
+      attachedConsentCode: details?.attachedConsentCode,
+      facultyApproval: {
+        status: 'Pending',
+        programClearance: 'Pending Review',
+      },
+      organizerConfirmedAllowed: false,
     };
     setApplications((prev) => [newApp, ...prev]);
     if (firebaseUser) {
       void saveUserApplication(firebaseUser.uid, newApp);
     }
-    showToast(`Applied to ${opp.company} · ${opp.title}`);
+    const attachedSummary = [
+      details?.attachedNocNumber ? `NOC ${details.attachedNocNumber}` : null,
+      details?.attachedConsentCode ? `Consent ${details.attachedConsentCode}` : null,
+    ]
+      .filter(Boolean)
+      .join(' & ');
+    logActivity(
+      'apply',
+      `Applied to ${opp.company} (${opp.title})`,
+      `Resume: ${chosenResume}${details ? ` · CGPA ${details.cgpa}` : ''}${
+        attachedSummary ? ` · Attached ${attachedSummary}` : ''
+      }`,
+      'learner'
+    );
+    showToast(
+      attachedSummary
+        ? `Applied to ${opp.company} with ${attachedSummary} attached for Faculty signature`
+        : `Applied to ${opp.company} · Sent to Faculty for signature`
+    );
+  };
+
+  const handleCompletePersonalization = (
+    personalization: UserPersonalization,
+    aiSuggestions: AiPersonalizationResult,
+    updatedSkills?: string[]
+  ) => {
+    if (updatedSkills && updatedSkills.length > 0) {
+      const nextProfile: StudentProfile = { ...profile, skills: updatedSkills };
+      setProfile(nextProfile);
+      if (firebaseUser) {
+        void saveUserProfile(firebaseUser.uid, nextProfile);
+      }
+    }
+    setUser((prev) =>
+      prev
+        ? {
+            ...prev,
+            personalization,
+            aiSuggestions,
+            onboardingCompleted: true,
+          }
+        : prev
+    );
+    if (firebaseUser) {
+      void saveUserPersonalization(firebaseUser.uid, personalization, aiSuggestions);
+    }
+    logActivity(
+      'personalize',
+      'Completed AI Workspace Personalization',
+      `Domains: ${personalization.preferredDomains.join(', ')} · Modes: ${personalization.preferredModes.join(', ')}`
+    );
+    setShowPersonalization(false);
+    showToast('AI suggestions tailored to your preferences!');
   };
 
   const handleUpdateStage = (appId: string, nextStage: ApplicationStage) => {
@@ -584,6 +787,12 @@ export default function App() {
     if (firebaseUser) {
       void publishOpportunityToHub(firebaseUser.uid, opp);
     }
+    logActivity(
+      'opportunity_publish',
+      `Published ${opp.title}`,
+      `${opp.company} · ${opp.mode} (${opp.location})`,
+      'organizer'
+    );
     showToast(`Published ${opp.title} to live Opportunity Hub`);
   };
 
@@ -592,12 +801,18 @@ export default function App() {
     try {
       if (firebaseUser) {
         const count = await syncLiveOpportunityHub(firebaseUser.uid, opportunities);
+        logActivity(
+          'hub_sync',
+          'Synced Opportunity Hub',
+          `Synced ${count} new & refreshed opportunities`
+        );
         showToast(
           count > 0
             ? `Synced ${count} new & updated opportunities in Opportunity Hub`
             : 'Opportunity Hub is up to date with the latest live roles'
         );
       } else {
+        logActivity('hub_sync', 'Refreshed Opportunity Hub', 'Verified live catalog listings');
         showToast('Opportunity Hub refreshed');
       }
     } finally {
@@ -634,6 +849,12 @@ export default function App() {
     if (firebaseUser) {
       void createUserLeaveRequest(firebaseUser.uid, newLeave);
     }
+    logActivity(
+      'leave_submit',
+      `Submitted ${payload.leaveType} leave request`,
+      `${payload.companyOrEvent} (${payload.startDate} to ${payload.endDate})`,
+      'learner'
+    );
     showToast('Leave request sent to Faculty Coordinator for digital signature');
   };
 
@@ -670,6 +891,12 @@ export default function App() {
     if (firebaseUser) {
       void signUserLeaveRequest(firebaseUser.uid, requestId, decision, sigRecord);
     }
+    logActivity(
+      'leave_sign',
+      `Digitally ${decision.toLowerCase()} leave request`,
+      `Verification code ${code} by ${signature.signerName}`,
+      'faculty'
+    );
     showToast(`Leave ${decision.toLowerCase()} with digital signature (${code})`);
   };
 
@@ -679,6 +906,12 @@ export default function App() {
     if (firebaseUser) {
       void createUserStudentSchedule(firebaseUser.uid, rec);
     }
+    logActivity(
+      'schedule_update',
+      `Added student schedule (${student.studentName})`,
+      `${student.internshipCompany} · ${student.internshipTiming}`,
+      'faculty'
+    );
     showToast(`Added ${student.studentName} to student roster`);
   };
 
@@ -698,6 +931,12 @@ export default function App() {
         extraEvents: nextExtraEvents,
       });
     }
+    logActivity(
+      'schedule_update',
+      `Scheduled event: ${event.title}`,
+      `${event.date} · ${event.timing}`,
+      'faculty'
+    );
     showToast(`Added event "${event.title}"`);
   };
 
@@ -717,6 +956,12 @@ export default function App() {
     if (firebaseUser) {
       void updateUserStudentSchedule(firebaseUser.uid, studentId, updates);
     }
+    logActivity(
+      'schedule_update',
+      `Updated student timing (${updates.internshipCompany})`,
+      `${updates.internshipRole} · ${updates.internshipTiming}`,
+      'faculty'
+    );
     showToast('Updated student internship timing');
   };
 
@@ -766,6 +1011,12 @@ export default function App() {
     if (firebaseUser) {
       void createUserNocRequest(firebaseUser.uid, newNoc);
     }
+    logActivity(
+      'noc_submit',
+      `Submitted NOC request (${refNo})`,
+      `${payload.companyName} · ${payload.roleTitle}`,
+      'learner'
+    );
     showToast(`NOC Request (${refNo}) sent to Faculty Coordinator`);
   };
 
@@ -803,6 +1054,12 @@ export default function App() {
     if (firebaseUser) {
       void createUserParentConsent(firebaseUser.uid, sheet);
     }
+    logActivity(
+      'consent_submit',
+      `Submitted Parent Consent Sheet (${code})`,
+      `Guardian: ${payload.parentName} (${payload.relationship}) · ${payload.companyOrEvent}`,
+      'learner'
+    );
     showToast(`Parent Consent Sheet (${code}) saved and shared with Faculty`);
   };
 
@@ -839,6 +1096,12 @@ export default function App() {
     if (firebaseUser) {
       void signUserNocRequest(firebaseUser.uid, nocId, decision, sigRecord);
     }
+    logActivity(
+      'noc_sign',
+      `Digitally ${decision.toLowerCase()} NOC`,
+      `Verification code ${code} by ${signature.signerName}`,
+      'faculty'
+    );
     showToast(`NOC ${decision.toLowerCase()} with digital signature (${code})`);
   };
 
@@ -859,10 +1122,161 @@ export default function App() {
     if (firebaseUser) {
       void verifyUserParentConsent(firebaseUser.uid, consentId, verifier);
     }
+    logActivity(
+      'consent_verify',
+      'Verified Parent Consent Sheet',
+      `Verified by ${verifier}`,
+      'faculty'
+    );
     showToast('Parent Consent Sheet verified by Faculty');
   };
 
+  const handleSignApplication = (
+    appId: string,
+    decision: 'Approved' | 'Rejected',
+    signature: {
+      signerName: string;
+      signerDesignation: string;
+      signatureDataUrl: string;
+      remarks?: string;
+    }
+  ) => {
+    const code = `IH-APP-2026-${Math.floor(1000 + Math.random() * 9000)}`;
+    const sigRecord = {
+      signerName: signature.signerName,
+      signerDesignation: signature.signerDesignation,
+      signatureDataUrl: signature.signatureDataUrl,
+      signedAt: todayIso(),
+      verificationCode: code,
+      remarks: signature.remarks,
+    };
+    const programClearance =
+      decision === 'Approved' ? 'Open / Allowed for Program' : 'Not Cleared';
+    const nextApproval = {
+      status: decision,
+      programClearance,
+      digitalSignature: sigRecord,
+    } as const;
+    const nextActionMsg =
+      decision === 'Approved'
+        ? `Faculty Signed (${code}) · Open / Allowed for Program`
+        : `Faculty clearance declined (${code})`;
+
+    const targetApp = applications.find((a) => a.id === appId);
+    setApplications((prev) =>
+      prev.map((a) =>
+        a.id === appId
+          ? {
+              ...a,
+              facultyApproval: nextApproval,
+              nextAction: nextActionMsg,
+            }
+          : a
+      )
+    );
+    if (firebaseUser) {
+      void updateUserApplication(firebaseUser.uid, appId, {
+        facultyApproval: nextApproval,
+        nextAction: nextActionMsg,
+      });
+    }
+    logActivity(
+      'application_sign',
+      `Faculty ${decision === 'Approved' ? 'signed & allowed' : 'declined'} ${
+        targetApp?.applicantName || 'student'
+      }`,
+      `${targetApp?.company || ''} · ${programClearance} (${code})`,
+      'faculty'
+    );
+    showToast(
+      decision === 'Approved'
+        ? `Signed (${code}) — Student sees pass & Organizer notified: Open / Allowed for Program`
+        : `Application declined by Faculty (${code})`
+    );
+  };
+
+  const handleAttachDocsToApplication = (
+    appId: string,
+    attachments: {
+      attachedNocId?: string;
+      attachedNocNumber?: string;
+      attachedConsentId?: string;
+      attachedConsentCode?: string;
+    }
+  ) => {
+    setApplications((prev) =>
+      prev.map((a) =>
+        a.id === appId
+          ? {
+              ...a,
+              attachedNocId: attachments.attachedNocId || undefined,
+              attachedNocNumber: attachments.attachedNocNumber || undefined,
+              attachedConsentId: attachments.attachedConsentId || undefined,
+              attachedConsentCode: attachments.attachedConsentCode || undefined,
+            }
+          : a
+      )
+    );
+    if (firebaseUser) {
+      void updateUserApplication(firebaseUser.uid, appId, {
+        attachedNocId: attachments.attachedNocId ?? '',
+        attachedNocNumber: attachments.attachedNocNumber ?? '',
+        attachedConsentId: attachments.attachedConsentId ?? '',
+        attachedConsentCode: attachments.attachedConsentCode ?? '',
+      });
+    }
+    showToast('Updated attached NOC Request & Parent Consent Sheet');
+  };
+
+  const handleConfirmApplicantForProgram = (appId: string) => {
+    const confirmedDate = todayIso();
+    const targetApp = applications.find((a) => a.id === appId);
+    const nextStage: ApplicationStage =
+      targetApp && targetApp.stage === 'Applied'
+        ? 'Shortlisted'
+        : targetApp?.stage || 'Shortlisted';
+    const nextActionMsg = 'Organizer confirmed Open / Allowed for Program';
+
+    setApplications((prev) =>
+      prev.map((a) =>
+        a.id === appId
+          ? {
+              ...a,
+              organizerConfirmedAllowed: true,
+              organizerConfirmedAt: confirmedDate,
+              stage: nextStage,
+              nextAction: nextActionMsg,
+            }
+          : a
+      )
+    );
+    if (firebaseUser) {
+      void updateUserApplication(firebaseUser.uid, appId, {
+        organizerConfirmedAllowed: true,
+        organizerConfirmedAt: confirmedDate,
+        stage: nextStage,
+        nextAction: nextActionMsg,
+      });
+    }
+    logActivity(
+      'organizer_confirm',
+      `Confirmed ${targetApp?.applicantName || 'candidate'} Open / Allowed for Program`,
+      `${targetApp?.company || ''} · ${targetApp?.roleTitle || ''}`,
+      'organizer'
+    );
+    showToast(
+      `Confirmed ${targetApp?.applicantName || 'student'} as Open / Allowed for Program`
+    );
+  };
+
   const handleLogout = async () => {
+    recordedLoginForUidRef.current = null;
+    setShowPersonalization(false);
+    setShowActivityModal(false);
+    setAccountMenuOpen(false);
+    setNotificationsOpen(false);
+    setMobileMenuOpen(false);
+    setGlobalSearch('');
     if (firebaseUser) {
       try {
         await signOut(auth);
@@ -898,7 +1312,10 @@ export default function App() {
   const isFaculty = user.role === 'faculty';
   const pendingLeaveCount = leaveRequests.filter((lv) => lv.status === 'Pending').length;
   const pendingNocCount = nocRequests.filter((n) => n.status === 'Pending').length;
-  const pendingFacultyCount = pendingLeaveCount + pendingNocCount;
+  const pendingAppClearanceCount = applications.filter(
+    (a) => !a.facultyApproval || a.facultyApproval.status === 'Pending'
+  ).length;
+  const pendingFacultyCount = pendingLeaveCount + pendingNocCount + pendingAppClearanceCount;
 
   const learnerNav: Array<{
     id: LearnerTab;
@@ -961,6 +1378,12 @@ export default function App() {
       label: 'NOC & Consent',
       shortLabel: 'NOC',
       icon: <FileSignature className="w-4 h-4" />,
+    },
+    {
+      id: 'applications',
+      label: 'App Clearances',
+      shortLabel: 'Apps',
+      icon: <Award className="w-4 h-4" />,
     },
     {
       id: 'students',
@@ -1162,7 +1585,7 @@ export default function App() {
           </nav>
         </div>
 
-        {/* Bottom Profile (Google V Monogram) & Sign Out */}
+        {/* Bottom Profile (Dynamic First-Letter Monogram) & Sign Out */}
         <div
           className={`p-4 border-t space-y-2 ${
             isLearner ? 'border-[#dbe3f0] dark:border-[#24324d]' : 'border-white/10'
@@ -1172,14 +1595,23 @@ export default function App() {
             type="button"
             onClick={() => {
               if (isLearner) setLearnerTab('profile');
+              else setShowActivityModal(true);
               setMobileMenuOpen(false);
             }}
-            className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-xl hover:bg-[#f3f6fb] dark:hover:bg-[#16213a] text-left transition-colors cursor-pointer"
+            className={`w-full flex items-center gap-2.5 px-2 py-1.5 rounded-xl text-left transition-colors cursor-pointer ${
+              isLearner ? 'hover:bg-[#f3f6fb] dark:hover:bg-[#16213a]' : 'hover:bg-white/10'
+            }`}
           >
-            <GoogleVAvatar size="sm" showRing />
+            <GoogleVAvatar
+              name={isLearner ? profile.name || user.name : user.name}
+              email={user.email}
+              role={user.role}
+              size="sm"
+              showRing={false}
+            />
             <div className="min-w-0">
               <p className="text-xs font-bold truncate">
-                {isLearner ? profile.name || user.name : user.organization || user.name}
+                {isLearner ? profile.name || user.name : user.name}
               </p>
               <p
                 className={`text-[11px] truncate ${
@@ -1339,7 +1771,10 @@ export default function App() {
 
             <button
               type="button"
-              onClick={() => setNotificationsOpen((o) => !o)}
+              onClick={() => {
+                setNotificationsOpen((o) => !o);
+                setAccountMenuOpen(false);
+              }}
               aria-label="Deadline notifications"
               className="relative p-2 rounded-xl bg-white dark:bg-[#131d33] border border-[#dbe3f0] dark:border-[#24324d] text-[#5b6b86] dark:text-[#9fb0cc] hover:text-[#12203a] dark:hover:text-white transition-colors cursor-pointer"
             >
@@ -1351,16 +1786,109 @@ export default function App() {
               )}
             </button>
 
+            {/* Clean First-Letter PFP Account Trigger */}
             <button
               type="button"
               onClick={() => {
-                if (isLearner) setLearnerTab('profile');
+                setAccountMenuOpen((o) => !o);
+                setNotificationsOpen(false);
               }}
-              title="View profile"
-              className="hidden sm:inline-flex cursor-pointer"
+              aria-label="Account menu and preferences"
+              aria-expanded={accountMenuOpen}
+              className="inline-flex items-center gap-2 pl-1.5 pr-2.5 py-1 rounded-xl bg-white dark:bg-[#131d33] border border-[#dbe3f0] dark:border-[#24324d] hover:border-[#2f5bea] transition-colors cursor-pointer shrink-0"
             >
-              <GoogleVAvatar size="sm" showRing />
+              <GoogleVAvatar
+                name={isLearner ? profile.name || user.name : user.name}
+                email={user.email}
+                role={user.role}
+                size="sm"
+                showRing={false}
+              />
+              <span className="hidden sm:inline text-xs font-bold max-w-[120px] truncate">
+                {(() => {
+                  const full = (isLearner ? profile.name || user.name : user.name).trim();
+                  const parts = full.split(/\s+/);
+                  if (parts.length > 1 && /^(dr|prof|mr|mrs|ms)\.?$/i.test(parts[0])) {
+                    return `${parts[0]} ${parts[1]}`;
+                  }
+                  return parts[0] || 'Account';
+                })()}
+              </span>
+              <ChevronDown className="w-3.5 h-3.5 text-[#5b6b86] dark:text-[#9fb0cc]" />
             </button>
+
+            {accountMenuOpen && (
+              <div className="absolute right-0 top-12 w-72 bg-white dark:bg-[#131d33] border border-[#dbe3f0] dark:border-[#24324d] rounded-2xl shadow-xl z-50 overflow-hidden">
+                <div className="p-4 border-b border-[#dbe3f0] dark:border-[#24324d] bg-[#f8fafe] dark:bg-[#0e1626] flex items-center gap-3">
+                  <GoogleVAvatar
+                    name={isLearner ? profile.name || user.name : user.name}
+                    email={user.email}
+                    role={user.role}
+                    size="md"
+                    showRing={false}
+                  />
+                  <div className="min-w-0">
+                    <p className="text-xs font-extrabold truncate">
+                      {isLearner ? profile.name || user.name : user.name}
+                    </p>
+                    <p className="text-[11px] text-[#5b6b86] dark:text-[#9fb0cc] truncate">
+                      {user.email}
+                    </p>
+                    <p className="text-[10px] font-semibold text-[#2f5bea] dark:text-[#7a9bff] mt-0.5 capitalize">
+                      {user.role === 'learner' ? 'Student' : user.role} ·{' '}
+                      {user.lastLoginMethod === 'google' ? 'Google Auth' : 'Local Session'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="p-2 space-y-1 text-xs">
+                  {isLearner && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLearnerTab('profile');
+                        setAccountMenuOpen(false);
+                      }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-[#f3f6fb] dark:hover:bg-[#16213a] font-semibold text-left cursor-pointer"
+                    >
+                      <UserCircle className="w-4 h-4 text-[#5b6b86] dark:text-[#9fb0cc]" />
+                      <span>Profile & Resume</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowPersonalization(true);
+                      setAccountMenuOpen(false);
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-[#f3f6fb] dark:hover:bg-[#16213a] font-semibold text-left cursor-pointer"
+                  >
+                    <SlidersHorizontal className="w-4 h-4 text-[#2f5bea] dark:text-[#7a9bff]" />
+                    <span>AI Preferences & Goals</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowActivityModal(true);
+                      setAccountMenuOpen(false);
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-[#f3f6fb] dark:hover:bg-[#16213a] font-semibold text-left cursor-pointer"
+                  >
+                    <Activity className="w-4 h-4 text-[#12805f] dark:text-[#5fe0b6]" />
+                    <span>Login & Activity History</span>
+                  </button>
+                  <div className="my-1 border-t border-[#dbe3f0] dark:border-[#24324d]" />
+                  <button
+                    type="button"
+                    onClick={() => void handleLogout()}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 font-semibold text-left cursor-pointer"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    <span>Sign out</span>
+                  </button>
+                </div>
+              </div>
+            )}
 
             {notificationsOpen && (
               <div className="absolute right-0 top-12 w-80 bg-white dark:bg-[#131d33] border border-[#dbe3f0] dark:border-[#24324d] rounded-2xl p-4 shadow-xl z-50 space-y-2.5">
@@ -1444,26 +1972,32 @@ export default function App() {
                       opportunities={opportunities}
                       applications={applications}
                       courses={COURSE_RESOURCES}
+                      nocRequests={nocRequests}
+                      parentConsents={parentConsents}
                       nocCount={
                         nocRequests.filter(
                           (n) =>
-                            n.studentEmail === user.email ||
-                            n.studentName.toLowerCase() === (profile.name || user.name).toLowerCase()
+                            n.studentEmail.trim().toLowerCase() === user.email.trim().toLowerCase() ||
+                            n.studentName.trim().toLowerCase() ===
+                              (profile.name || user.name).trim().toLowerCase()
                         ).length
                       }
                       approvedNocCount={
                         nocRequests.filter(
                           (n) =>
-                            (n.studentEmail === user.email ||
-                              n.studentName.toLowerCase() === (profile.name || user.name).toLowerCase()) &&
+                            (n.studentEmail.trim().toLowerCase() ===
+                              user.email.trim().toLowerCase() ||
+                              n.studentName.trim().toLowerCase() ===
+                                (profile.name || user.name).trim().toLowerCase()) &&
                             n.status === 'Approved'
                         ).length
                       }
                       parentConsentCount={
                         parentConsents.filter(
                           (c) =>
-                            c.studentEmail === user.email ||
-                            c.studentName.toLowerCase() === (profile.name || user.name).toLowerCase()
+                            c.studentEmail.trim().toLowerCase() === user.email.trim().toLowerCase() ||
+                            c.studentName.trim().toLowerCase() ===
+                              (profile.name || user.name).trim().toLowerCase()
                         ).length
                       }
                       onNavigate={setLearnerTab}
@@ -1473,6 +2007,7 @@ export default function App() {
                         setAiInitialPrompt(prompt);
                         setAiOpen(true);
                       }}
+                      onOpenPersonalization={() => setShowPersonalization(true)}
                     />
                   )}
 
@@ -1481,6 +2016,8 @@ export default function App() {
                       opportunities={opportunities}
                       profile={profile}
                       applications={applications}
+                      nocRequests={nocRequests}
+                      parentConsents={parentConsents}
                       userEmail={user.email}
                       initialSearch={hubInitialSearch}
                       onApply={handleApply}
@@ -1495,10 +2032,13 @@ export default function App() {
                       resumes={profile.resumes}
                       defaultResumeName={profile.resumeName}
                       leaveRequests={leaveRequests}
+                      nocRequests={nocRequests}
+                      parentConsents={parentConsents}
                       userEmail={user.email}
                       userName={profile.name || user.name}
                       onUpdateStage={handleUpdateStage}
                       onUpdateApplicationResume={handleUpdateApplicationResume}
+                      onAttachDocsToApplication={handleAttachDocsToApplication}
                       onAddResume={handleAddResume}
                       onSetDefaultResume={handleSetDefaultResume}
                       onDeleteResume={handleDeleteResume}
@@ -1513,6 +2053,7 @@ export default function App() {
                       userEmail={user.email}
                       userName={profile.name || user.name}
                       opportunities={opportunities}
+                      applications={applications}
                       nocRequests={nocRequests}
                       parentConsents={parentConsents}
                       leaveRequests={leaveRequests}
@@ -1544,6 +2085,12 @@ export default function App() {
                         if (firebaseUser) {
                           void saveUserProfile(firebaseUser.uid, updated);
                         }
+                        logActivity(
+                          'profile_update',
+                          'Updated Student Profile & Exam Window',
+                          `Sem ${updated.semester} · ${updated.skills.length} skills · Exams ${updated.examStart}–${updated.examEnd}`,
+                          'learner'
+                        );
                         showToast('Profile and exam schedule saved');
                       }}
                     />
@@ -1553,10 +2100,13 @@ export default function App() {
                 <FacultyWorkspace
                   activeTab={facultyTab}
                   user={user}
+                  applications={applications}
                   leaveRequests={leaveRequests}
                   nocRequests={nocRequests}
                   parentConsents={parentConsents}
                   studentSchedules={studentSchedules}
+                  onSignApplication={handleSignApplication}
+                  onAttachDocsToApplication={handleAttachDocsToApplication}
                   onSignLeaveRequest={handleSignLeaveRequest}
                   onSignNocRequest={handleSignNocRequest}
                   onVerifyParentConsent={handleVerifyParentConsent}
@@ -1570,8 +2120,11 @@ export default function App() {
                   user={user}
                   opportunities={opportunities}
                   applications={applications}
+                  nocRequests={nocRequests}
+                  parentConsents={parentConsents}
                   onPublishOpportunity={handlePublishOpportunity}
                   onUpdateApplicationStage={handleUpdateStage}
+                  onConfirmApplicantForProgram={handleConfirmApplicantForProgram}
                   onNavigate={setOrganizerTab}
                 />
               )}
@@ -1612,7 +2165,7 @@ export default function App() {
                   key={item.id}
                   type="button"
                   onClick={() => setFacultyTab(item.id)}
-                  className={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-xl text-[10px] font-bold transition-colors cursor-pointer ${
+                  className={`flex flex-col items-center gap-0.5 px-2 py-1 rounded-xl text-[10px] font-bold transition-colors cursor-pointer whitespace-nowrap ${
                     active
                       ? 'text-[#2f5bea] dark:text-[#7a9bff]'
                       : 'text-[#5b6b86] dark:text-[#9fb0cc]'
@@ -1653,6 +2206,30 @@ export default function App() {
         applications={applications}
         initialPrompt={aiInitialPrompt}
         onConsumedInitialPrompt={() => setAiInitialPrompt(undefined)}
+      />
+
+      {/* New-Login Personalization & AI Recommendations Modal */}
+      <PersonalizationModal
+        open={showPersonalization}
+        user={user}
+        profile={profile}
+        opportunities={opportunities}
+        onClose={() => {
+          setShowPersonalization(false);
+          setUser((prev) => (prev ? { ...prev, onboardingCompleted: true } : prev));
+          if (firebaseUser) {
+            void updateUserAccountPrefs(firebaseUser.uid, { onboardingCompleted: true });
+          }
+        }}
+        onComplete={handleCompletePersonalization}
+      />
+
+      {/* Multi-Role Login Info & Activity History Modal */}
+      <ActivityHistoryModal
+        open={showActivityModal}
+        user={user}
+        logs={activityLogs}
+        onClose={() => setShowActivityModal(false)}
       />
 
       {/* Offline PWA Banner */}

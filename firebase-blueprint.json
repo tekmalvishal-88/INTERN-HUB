@@ -33,6 +33,26 @@
         "darkMode": {
           "type": "boolean"
         },
+        "lastLoginAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "lastLoginMethod": {
+          "type": "string",
+          "enum": ["google", "local"]
+        },
+        "loginCount": {
+          "type": "integer"
+        },
+        "onboardingCompleted": {
+          "type": "boolean"
+        },
+        "personalization": {
+          "type": "object"
+        },
+        "aiSuggestions": {
+          "type": "object"
+        },
         "createdAt": {
           "type": "string",
           "format": "date-time"
@@ -125,6 +145,14 @@
         "nextAction": { "type": "string", "maxLength": 300 },
         "notes": { "type": "string", "maxLength": 1000 },
         "isExternal": { "type": "boolean" },
+        "applicationDetails": { "type": "object" },
+        "attachedNocId": { "type": "string", "maxLength": 128 },
+        "attachedNocNumber": { "type": "string", "maxLength": 80 },
+        "attachedConsentId": { "type": "string", "maxLength": 128 },
+        "attachedConsentCode": { "type": "string", "maxLength": 80 },
+        "facultyApproval": { "type": "object" },
+        "organizerConfirmedAllowed": { "type": "boolean" },
+        "organizerConfirmedAt": { "type": "string", "maxLength": 20 },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
@@ -414,6 +442,31 @@
         "createdAt",
         "updatedAt"
       ]
+    },
+    "ActivityLogDoc": {
+      "title": "User Activity & Login Log",
+      "description": "Isolated per-user login metadata and activity history across student, faculty, and organizer roles.",
+      "type": "object",
+      "properties": {
+        "ownerUid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "role": { "type": "string", "enum": ["learner", "faculty", "organizer"] },
+        "actionType": { "type": "string", "maxLength": 48 },
+        "title": { "type": "string", "maxLength": 160 },
+        "details": { "type": "string", "maxLength": 400 },
+        "deviceSummary": { "type": "string", "maxLength": 140 },
+        "occurredAt": { "type": "string", "maxLength": 40 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "ownerUid",
+        "role",
+        "actionType",
+        "title",
+        "details",
+        "deviceSummary",
+        "occurredAt",
+        "createdAt"
+      ]
     }
   },
   "firestore": {
@@ -444,6 +497,10 @@
     "/users/{userId}/studentSchedules/{scheduleId}": {
       "schema": { "$ref": "#/entities/StudentScheduleDoc" },
       "description": "User's faculty schedule & event tracker records."
+    },
+    "/users/{userId}/activityLogs/{logId}": {
+      "schema": { "$ref": "#/entities/ActivityLogDoc" },
+      "description": "User's isolated login and activity history across student, faculty, and organizer roles."
     },
     "/opportunities/{opportunityId}": {
       "schema": { "$ref": "#/entities/OpportunityDoc" },

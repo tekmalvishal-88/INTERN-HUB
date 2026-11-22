@@ -14,9 +14,12 @@ import {
 } from 'lucide-react';
 import type {
   AiSmartPick,
+  ApplicationCriteriaPayload,
   ApplicationRecord,
+  NocRequest,
   Opportunity,
   OpportunityType,
+  ParentConsentSheet,
   StudentProfile,
   WorkMode,
 } from '../types';
@@ -28,14 +31,17 @@ import {
   getSkillMatch,
   todayIso,
 } from '../utils/matching';
+import { ApplicationCriteriaModal } from './ApplicationCriteriaModal';
 
 interface OpportunityHubProps {
   opportunities: Opportunity[];
   profile: StudentProfile;
   applications: ApplicationRecord[];
+  nocRequests?: NocRequest[];
+  parentConsents?: ParentConsentSheet[];
   userEmail: string;
   initialSearch?: string;
-  onApply: (opp: Opportunity) => void;
+  onApply: (opp: Opportunity, details?: ApplicationCriteriaPayload) => void;
   onRefreshHub?: () => Promise<void>;
   isSyncingHub?: boolean;
 }
@@ -66,6 +72,8 @@ export const OpportunityHub: React.FC<OpportunityHubProps> = ({
   opportunities,
   profile,
   applications,
+  nocRequests = [],
+  parentConsents = [],
   userEmail,
   initialSearch = '',
   onApply,
@@ -88,6 +96,7 @@ export const OpportunityHub: React.FC<OpportunityHubProps> = ({
   const [smartPicking, setSmartPicking] = useState(false);
   const [smartPicks, setSmartPicks] = useState<AiSmartPick[]>([]);
   const [smartPickError, setSmartPickError] = useState<string | null>(null);
+  const [applyingOpp, setApplyingOpp] = useState<Opportunity | null>(null);
 
   const toggleType = (t: OpportunityType) => {
     setPage(1);
@@ -124,7 +133,9 @@ export const OpportunityHub: React.FC<OpportunityHubProps> = ({
         const clash = getExamClash(opp, profile);
         const daysLeft = daysBetween(today, opp.deadline);
         const existingApp = applications.find(
-          (a) => a.opportunityId === opp.id && a.applicantEmail === userEmail
+          (a) =>
+            a.opportunityId === opp.id &&
+            a.applicantEmail.toLowerCase() === userEmail.toLowerCase()
         );
         return { opp, match, clash, daysLeft, existingApp };
       })
@@ -231,7 +242,9 @@ export const OpportunityHub: React.FC<OpportunityHubProps> = ({
         const match = getSkillMatch(opp, profile);
         const clash = getExamClash(opp, profile);
         const existingApp = applications.find(
-          (a) => a.opportunityId === opp.id && a.applicantEmail === userEmail
+          (a) =>
+            a.opportunityId === opp.id &&
+            a.applicantEmail.toLowerCase() === userEmail.toLowerCase()
         );
         return { pick, opp, match, clash, existingApp };
       })
@@ -445,7 +458,7 @@ export const OpportunityHub: React.FC<OpportunityHubProps> = ({
                       ) : (
                         <button
                           type="button"
-                          onClick={() => onApply(opp)}
+                          onClick={() => setApplyingOpp(opp)}
                           className="px-3 py-1.5 rounded-lg bg-[#2f5bea] text-white text-[11px] font-bold cursor-pointer"
                         >
                           Apply
@@ -651,7 +664,7 @@ export const OpportunityHub: React.FC<OpportunityHubProps> = ({
                           <button
                             type="button"
                             disabled={!match.semesterEligible || daysLeft < 0}
-                            onClick={() => onApply(opp)}
+                            onClick={() => setApplyingOpp(opp)}
                             className="flex-1 py-2 px-3 rounded-xl bg-[#2f5bea] hover:bg-[#244bc9] text-white text-xs font-bold transition-colors cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
                           >
                             Apply Now
@@ -711,6 +724,19 @@ export const OpportunityHub: React.FC<OpportunityHubProps> = ({
           </>
         )}
       </div>
+
+      <ApplicationCriteriaModal
+        opportunity={applyingOpp}
+        profile={profile}
+        userEmail={userEmail}
+        nocRequests={nocRequests}
+        parentConsents={parentConsents}
+        onClose={() => setApplyingOpp(null)}
+        onSubmit={(opp, details) => {
+          onApply(opp, details);
+          setApplyingOpp(null);
+        }}
+      />
     </div>
   );
 };

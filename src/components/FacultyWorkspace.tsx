@@ -21,6 +21,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import type {
+  ApplicationRecord,
   FacultyTab,
   LeaveRequest,
   LeaveRequestStatus,
@@ -32,14 +33,35 @@ import type {
   UserAccount,
 } from '../types';
 import { daysBetween, formatShortDate, todayIso } from '../utils/matching';
+import { GoogleVAvatar } from './GoogleVAvatar';
 
 interface FacultyWorkspaceProps {
   activeTab: FacultyTab;
   user: UserAccount;
+  applications: ApplicationRecord[];
   leaveRequests: LeaveRequest[];
   nocRequests: NocRequest[];
   parentConsents: ParentConsentSheet[];
   studentSchedules: StudentScheduleRecord[];
+  onSignApplication: (
+    appId: string,
+    decision: 'Approved' | 'Rejected',
+    signature: {
+      signerName: string;
+      signerDesignation: string;
+      signatureDataUrl: string;
+      remarks?: string;
+    }
+  ) => void;
+  onAttachDocsToApplication: (
+    appId: string,
+    attachments: {
+      attachedNocId?: string;
+      attachedNocNumber?: string;
+      attachedConsentId?: string;
+      attachedConsentCode?: string;
+    }
+  ) => void;
   onSignLeaveRequest: (
     requestId: string,
     decision: 'Approved' | 'Rejected',
@@ -111,10 +133,13 @@ function getUrgencyClasses(daysLeft: number) {
 export const FacultyWorkspace: React.FC<FacultyWorkspaceProps> = ({
   activeTab,
   user,
+  applications,
   leaveRequests,
   nocRequests,
   parentConsents,
   studentSchedules,
+  onSignApplication,
+  onAttachDocsToApplication,
   onSignLeaveRequest,
   onSignNocRequest,
   onVerifyParentConsent,
@@ -127,11 +152,14 @@ export const FacultyWorkspace: React.FC<FacultyWorkspaceProps> = ({
   const [nocFilter, setNocFilter] = useState<'All' | NocStatus>('All');
   const [nocSearch, setNocSearch] = useState('');
   const [nocSection, setNocSection] = useState<'noc' | 'consents'>('noc');
+  const [appFilter, setAppFilter] = useState<'All' | 'Pending' | 'Allowed' | 'Rejected'>('All');
+  const [appSearch, setAppSearch] = useState('');
 
-  // Digital Signature Modal state (works for both Leave Requests & NOC Requests)
+  // Digital Signature Modal state (works for Leave Requests, NOC Requests & Student Applications)
   const [signingTarget, setSigningTarget] = useState<
     | { kind: 'leave'; req: LeaveRequest }
     | { kind: 'noc'; req: NocRequest }
+    | { kind: 'application'; req: ApplicationRecord }
     | null
   >(null);
   const [signerName, setSignerName] = useState(user.name || 'Dr. Priya Rao');
@@ -144,9 +172,15 @@ export const FacultyWorkspace: React.FC<FacultyWorkspaceProps> = ({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const isDrawingRef = useRef(false);
 
-  // View Pass / NOC Modals
+  useEffect(() => {
+    setSignerName(user.name || 'Dr. Priya Rao');
+    setSignerDesignation(user.designation || 'Faculty Placement & Leave Coordinator, CSE');
+  }, [user.name, user.designation]);
+
+  // View Pass / NOC / Application Clearance Modals
   const [passReq, setPassReq] = useState<LeaveRequest | null>(null);
   const [passNoc, setPassNoc] = useState<NocRequest | null>(null);
+  const [passApp, setPassApp] = useState<ApplicationRecord | null>(null);
 
   // Student Roster Filters & Add Student Modal
   const [studentSearch, setStudentSearch] = useState('');
@@ -189,6 +223,12 @@ export const FacultyWorkspace: React.FC<FacultyWorkspaceProps> = ({
   const rejectedCount = leaveRequests.filter((r) => r.status === 'Rejected').length;
   const pendingNocCount = nocRequests.filter((n) => n.status === 'Pending').length;
   const approvedNocCount = nocRequests.filter((n) => n.status === 'Approved').length;
+  const pendingAppClearanceCount = applications.filter(
+    (a) => a.stage !== 'Rejected' && a.facultyApproval?.status !== 'Approved' && a.facultyApproval?.status !== 'Rejected'
+  ).length;
+  const approvedAppClearanceCount = applications.filter(
+    (a) => a.facultyApproval?.status === 'Approved'
+  ).length;
 
   useEffect(() => {
     if (!signingTarget || !canvasRef.current) return;
@@ -293,8 +333,10 @@ export const FacultyWorkspace: React.FC<FacultyWorkspaceProps> = ({
 
     if (signingTarget.kind === 'leave') {
       onSignLeaveRequest(signingTarget.req.id, decision, signaturePayload);
-    } else {
+    } else if (signingTarget.kind === 'noc') {
       onSignNocRequest(signingTarget.req.id, decision, signaturePayload);
+    } else {
+      onSignApplication(signingTarget.req.id, decision, signaturePayload);
     }
     setSigningTarget(null);
     setRemarks('');
@@ -323,6 +365,21 @@ export const FacultyWorkspace: React.FC<FacultyWorkspaceProps> = ({
       return true;
     });
   }, [nocRequests, nocFilter, nocSearch]);
+
+  const filteredApplications = useMemo(() => {
+    const q = appSearch.trim().toLowerCase();
+    return applications.filter((a) => {
+      const approvalStatus = a.facultyApproval?.status || 'Pending';
+      if (appFilter === 'Pending' && approvalStatus !== 'Pending') return false;
+      if (appFilter === 'Allowed' && approvalStatus !== 'Approved') return false;
+      if (appFilter === 'Rejected' && approvalStatus !== 'Rejected') return false;
+      if (q) {
+        const hay = `${a.applicantName} ${a.applicantEmail} ${a.company} ${a.roleTitle} ${a.attachedNocNumber || ''} ${a.attachedConsentCode || ''}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [applications, appFilter, appSearch]);
 
   const branches = useMemo(() => {
     const set = new Set(studentSchedules.map((s) => s.branch));
@@ -484,57 +541,76 @@ export const FacultyWorkspace: React.FC<FacultyWorkspaceProps> = ({
   return (
     <div className="space-y-6">
       {/* Header Banner */}
-      <div className="bg-white dark:bg-[#131d33] border border-[#dbe3f0] dark:border-[#24324d] rounded-2xl p-5 sm:p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2 text-xs font-bold text-[#2f5bea] dark:text-[#7a9bff] mb-1">
-            <ShieldCheck className="w-4 h-4" />
-            <span>Faculty Leave Approval & Student Schedule Portal</span>
+      <div className="bg-white dark:bg-[#131d33] border border-[#dbe3f0] dark:border-[#24324d] rounded-2xl p-5 sm:p-6 flex flex-col lg:flex-row lg:items-center justify-between gap-5">
+        <div className="flex items-start sm:items-center gap-4 min-w-0">
+          <GoogleVAvatar
+            name={user.name}
+            email={user.email}
+            role="faculty"
+            size="lg"
+            showRing={false}
+          />
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-[#12805f] dark:text-[#5fe0b6] mb-0.5">
+              <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+              <span>Faculty Coordinator Portal</span>
+            </div>
+            <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight truncate">
+              {activeTab === 'approvals'
+                ? 'Digital Leave & On-Duty Approvals'
+                : activeTab === 'noc'
+                ? 'NOC Permission Requests & Parent Consent Sheets'
+                : activeTab === 'applications'
+                ? 'Student Applications, Attached NOC & Program Clearances'
+                : activeTab === 'students'
+                ? 'Student Roster, Event Dates & Internship Timings'
+                : 'Department Events & Internship Calendar'}
+            </h1>
+            <p className="text-xs text-[#5b6b86] dark:text-[#9fb0cc] mt-0.5 truncate">
+              {user.name} · {user.designation || 'Faculty Coordinator'} · {user.email}
+            </p>
           </div>
-          <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight">
-            {activeTab === 'approvals'
-              ? 'Digital Leave & On-Duty Approvals'
-              : activeTab === 'noc'
-              ? 'NOC Permission Requests & Parent Consent Sheets'
-              : activeTab === 'students'
-              ? 'Student Roster, Event Dates & Internship Timings'
-              : 'Department Events & Internship Calendar'}
-          </h1>
-          <p className="text-xs text-[#5b6b86] dark:text-[#9fb0cc] mt-0.5">
-            {user.name} · {user.designation || 'Faculty Coordinator'}
-          </p>
         </div>
 
-        {/* KPI Strip */}
-        <div className="grid grid-cols-4 gap-2.5 shrink-0">
-          <div className="px-3 py-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-center">
-            <div className="font-mono text-lg font-extrabold text-amber-700 dark:text-amber-300 tabular-nums">
+        {/* Clean Hairline KPI Summary Strip */}
+        <div className="grid grid-cols-5 divide-x divide-[#dbe3f0] dark:divide-[#24324d] rounded-xl border border-[#dbe3f0] dark:border-[#24324d] bg-[#f8fafe] dark:bg-[#0e1626] shrink-0 overflow-hidden">
+          <div className="px-3.5 py-2.5 text-center">
+            <div className="font-mono text-lg font-extrabold text-[#2f5bea] dark:text-[#7a9bff] tabular-nums">
+              {pendingAppClearanceCount}
+            </div>
+            <div className="text-[11px] font-medium text-[#5b6b86] dark:text-[#9fb0cc] whitespace-nowrap">
+              Apps Due
+            </div>
+          </div>
+          <div className="px-3.5 py-2.5 text-center">
+            <div className="font-mono text-lg font-extrabold text-amber-600 dark:text-amber-400 tabular-nums">
               {pendingCount}
             </div>
-            <div className="text-[11px] font-semibold text-amber-800 dark:text-amber-200">
+            <div className="text-[11px] font-medium text-[#5b6b86] dark:text-[#9fb0cc] whitespace-nowrap">
               Leaves
             </div>
           </div>
-          <div className="px-3 py-2.5 rounded-xl bg-[#e8eeff] dark:bg-[#1c2a50] border border-[#2f5bea]/25 text-center">
+          <div className="px-3.5 py-2.5 text-center">
             <div className="font-mono text-lg font-extrabold text-[#2f5bea] dark:text-[#7a9bff] tabular-nums">
               {pendingNocCount}
             </div>
-            <div className="text-[11px] font-semibold text-[#2f5bea] dark:text-[#7a9bff]">
+            <div className="text-[11px] font-medium text-[#5b6b86] dark:text-[#9fb0cc] whitespace-nowrap">
               NOC Due
             </div>
           </div>
-          <div className="px-3 py-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-center">
-            <div className="font-mono text-lg font-extrabold text-emerald-700 dark:text-emerald-300 tabular-nums">
-              {approvedCount + approvedNocCount}
+          <div className="px-3.5 py-2.5 text-center">
+            <div className="font-mono text-lg font-extrabold text-[#12805f] dark:text-[#5fe0b6] tabular-nums">
+              {approvedCount + approvedNocCount + approvedAppClearanceCount}
             </div>
-            <div className="text-[11px] font-semibold text-emerald-800 dark:text-emerald-200">
+            <div className="text-[11px] font-medium text-[#5b6b86] dark:text-[#9fb0cc] whitespace-nowrap">
               Signed
             </div>
           </div>
-          <div className="px-3 py-2.5 rounded-xl bg-[#f3f6fb] dark:bg-[#0e1626] border border-[#dbe3f0] dark:border-[#24324d] text-center">
+          <div className="px-3.5 py-2.5 text-center">
             <div className="font-mono text-lg font-extrabold tabular-nums">
               {studentSchedules.length}
             </div>
-            <div className="text-[11px] font-semibold text-[#5b6b86] dark:text-[#9fb0cc]">
+            <div className="text-[11px] font-medium text-[#5b6b86] dark:text-[#9fb0cc] whitespace-nowrap">
               Students
             </div>
           </div>
@@ -992,6 +1068,373 @@ export const FacultyWorkspace: React.FC<FacultyWorkspaceProps> = ({
         </div>
       )}
 
+      {/* TAB 1C: STUDENT APPLICATIONS, ATTACHED NOC & PARENT CONSENT SIGN-OFF */}
+      {activeTab === 'applications' && (
+        <div className="space-y-4">
+          <div className="bg-white dark:bg-[#131d33] border border-[#dbe3f0] dark:border-[#24324d] rounded-2xl p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-1.5">
+              {(
+                [
+                  { id: 'All', label: `All (${applications.length})` },
+                  { id: 'Pending', label: `Pending Signature (${pendingAppClearanceCount})` },
+                  {
+                    id: 'Allowed',
+                    label: `Open / Allowed for Program (${approvedAppClearanceCount})`,
+                  },
+                  {
+                    id: 'Rejected',
+                    label: `Not Cleared (${applications.filter((a) => a.facultyApproval?.status === 'Rejected').length})`,
+                  },
+                ] as const
+              ).map((tab) => {
+                const active = appFilter === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setAppFilter(tab.id)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer whitespace-nowrap ${
+                      active
+                        ? 'bg-[#2f5bea] text-white'
+                        : 'bg-[#f3f6fb] dark:bg-[#0e1626] text-[#5b6b86] dark:text-[#9fb0cc] hover:text-[#12203a] dark:hover:text-white'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="relative w-full lg:w-72">
+              <Search className="w-4 h-4 text-[#5b6b86] absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={appSearch}
+                onChange={(e) => setAppSearch(e.target.value)}
+                placeholder="Search student, company, NOC #, Consent..."
+                className="w-full pl-9 pr-3 py-2 rounded-xl border border-[#dbe3f0] dark:border-[#24324d] bg-white dark:bg-[#0b1120] text-xs"
+              />
+            </div>
+          </div>
+
+          {filteredApplications.length === 0 ? (
+            <div className="bg-white dark:bg-[#131d33] border border-[#dbe3f0] dark:border-[#24324d] rounded-2xl p-10 text-center text-xs text-[#5b6b86] dark:text-[#9fb0cc]">
+              No student applications match this filter.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {filteredApplications.map((app) => {
+                const emailLower = app.applicantEmail.toLowerCase();
+                const nameLower = app.applicantName.toLowerCase();
+                const studentNocs = nocRequests.filter(
+                  (n) =>
+                    n.studentEmail.toLowerCase() === emailLower ||
+                    n.studentName.toLowerCase() === nameLower
+                );
+                const studentConsents = parentConsents.filter(
+                  (c) =>
+                    c.studentEmail.toLowerCase() === emailLower ||
+                    c.studentName.toLowerCase() === nameLower
+                );
+
+                const linkedNoc =
+                  (app.attachedNocId && nocRequests.find((n) => n.id === app.attachedNocId)) ||
+                  studentNocs.find((n) =>
+                    n.companyName.toLowerCase().includes(app.company.toLowerCase())
+                  );
+                const linkedConsent =
+                  (app.attachedConsentId &&
+                    parentConsents.find((c) => c.id === app.attachedConsentId)) ||
+                  (linkedNoc?.parentConsentId &&
+                    parentConsents.find((c) => c.id === linkedNoc.parentConsentId)) ||
+                  studentConsents.find((c) =>
+                    c.companyOrEvent.toLowerCase().includes(app.company.toLowerCase())
+                  );
+
+                const clearance = app.facultyApproval?.programClearance || 'Pending Review';
+                const approvalStatus = app.facultyApproval?.status || 'Pending';
+
+                return (
+                  <div
+                    key={app.id}
+                    className="bg-white dark:bg-[#131d33] border border-[#dbe3f0] dark:border-[#24324d] rounded-2xl p-5 flex flex-col justify-between gap-4"
+                  >
+                    <div className="space-y-3">
+                      {/* Header */}
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="text-base font-bold">{app.applicantName}</h3>
+                            <span className="font-mono text-[11px] font-bold px-2 py-0.5 rounded-md bg-[#f3f6fb] dark:bg-[#0e1626] text-[#5b6b86] dark:text-[#9fb0cc]">
+                              {app.applicantBranch || 'CSE'} · Sem {app.applicantSemester || 5}
+                            </span>
+                          </div>
+                          <p className="text-xs text-[#5b6b86] dark:text-[#9fb0cc] mt-0.5">
+                            {app.applicantEmail} · Stage: <strong className="text-[#12203a] dark:text-[#e8eefc]">{app.stage}</strong>
+                          </p>
+                        </div>
+
+                        <span
+                          className={`px-2.5 py-1 rounded-lg text-[11px] font-bold shrink-0 ${
+                            approvalStatus === 'Approved'
+                              ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300'
+                              : approvalStatus === 'Rejected'
+                              ? 'bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300'
+                              : 'bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300'
+                          }`}
+                        >
+                          {clearance}
+                        </span>
+                      </div>
+
+                      {/* Application Criteria Details */}
+                      <div className="p-3.5 rounded-xl bg-[#f8fafe] dark:bg-[#0e1626] border border-[#dbe3f0] dark:border-[#24324d] space-y-1.5 text-xs">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-bold text-sm">
+                            {app.company} — {app.roleTitle}
+                          </span>
+                          <span className="font-mono text-[11px] text-[#5b6b86] dark:text-[#9fb0cc]">
+                            {app.location}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-[#5b6b86] dark:text-[#9fb0cc]">
+                          Resume: <strong className="text-[#12203a] dark:text-[#e8eefc]">{app.resumeUsed || 'Default CV'}</strong>
+                          {app.applicationDetails?.cgpa ? ` · CGPA: ${app.applicationDetails.cgpa}` : ''}
+                          {app.applicationDetails?.availability
+                            ? ` · ${app.applicationDetails.availability}`
+                            : ''}
+                        </p>
+                        {app.applicationDetails?.coverNote && (
+                          <p className="text-[11px] text-[#5b6b86] dark:text-[#9fb0cc] line-clamp-2 leading-relaxed">
+                            SOP: “{app.applicationDetails.coverNote}”
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Attached NOC Request & Parent Consent Sheet */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+                        {/* Attached NOC */}
+                        <div className="p-3 rounded-xl bg-[#f8fafe] dark:bg-[#0e1626] border border-[#dbe3f0] dark:border-[#24324d] space-y-2">
+                          <div className="flex items-center justify-between gap-1.5">
+                            <span className="inline-flex items-center gap-1 font-bold text-[#2f5bea] dark:text-[#7a9bff] text-[11px]">
+                              <FileSignature className="w-3.5 h-3.5" />
+                              NOC Request
+                            </span>
+                            {linkedNoc && (
+                              <span
+                                className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                                  linkedNoc.status === 'Approved'
+                                    ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300'
+                                    : linkedNoc.status === 'Rejected'
+                                    ? 'bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300'
+                                    : 'bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300'
+                                }`}
+                              >
+                                {linkedNoc.status}
+                              </span>
+                            )}
+                          </div>
+
+                          {linkedNoc ? (
+                            <div className="space-y-1">
+                              <p className="font-mono text-[11px] font-bold">{linkedNoc.nocNumber}</p>
+                              <p className="text-[11px] text-[#5b6b86] dark:text-[#9fb0cc] truncate">
+                                {linkedNoc.companyName} · {linkedNoc.workMode}
+                              </p>
+                              {linkedNoc.status === 'Pending' && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSigningTarget({ kind: 'noc', req: linkedNoc });
+                                    setRemarks('');
+                                  }}
+                                  className="text-[11px] font-bold text-[#2f5bea] dark:text-[#7a9bff] hover:underline cursor-pointer"
+                                >
+                                  Sign attached NOC →
+                                </button>
+                              )}
+                            </div>
+                          ) : (
+                            <p className="text-[11px] text-amber-700 dark:text-amber-300 font-semibold">
+                              {app.attachedNocNumber || 'No NOC linked yet'}
+                            </p>
+                          )}
+
+                          {studentNocs.length > 0 && (
+                            <select
+                              value={linkedNoc?.id || app.attachedNocId || ''}
+                              onChange={(e) => {
+                                const chosen = studentNocs.find((n) => n.id === e.target.value);
+                                onAttachDocsToApplication(app.id, {
+                                  attachedNocId: chosen?.id || '',
+                                  attachedNocNumber: chosen?.nocNumber || '',
+                                });
+                              }}
+                              aria-label="Link NOC Request"
+                              className="w-full px-2 py-1 rounded-lg border border-[#dbe3f0] dark:border-[#24324d] bg-white dark:bg-[#0b1120] text-[11px] font-semibold"
+                            >
+                              <option value="">Link student NOC...</option>
+                              {studentNocs.map((n) => (
+                                <option key={n.id} value={n.id}>
+                                  {n.nocNumber} ({n.status})
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                        </div>
+
+                        {/* Attached Parent Consent Sheet */}
+                        <div className="p-3 rounded-xl bg-[#f8fafe] dark:bg-[#0e1626] border border-[#dbe3f0] dark:border-[#24324d] space-y-2">
+                          <div className="flex items-center justify-between gap-1.5">
+                            <span className="inline-flex items-center gap-1 font-bold text-[#12805f] dark:text-[#5fe0b6] text-[11px]">
+                              <HeartHandshake className="w-3.5 h-3.5" />
+                              Parent Consent
+                            </span>
+                            {linkedConsent && (
+                              <span
+                                className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                                  linkedConsent.facultyVerified
+                                    ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300'
+                                    : 'bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300'
+                                }`}
+                              >
+                                {linkedConsent.facultyVerified ? 'Verified' : 'Signed'}
+                              </span>
+                            )}
+                          </div>
+
+                          {linkedConsent ? (
+                            <div className="space-y-1">
+                              <p className="font-mono text-[11px] font-bold">{linkedConsent.consentCode}</p>
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-[11px] text-[#5b6b86] dark:text-[#9fb0cc] truncate">
+                                  {linkedConsent.parentName} ({linkedConsent.relationship})
+                                </span>
+                                <img
+                                  src={linkedConsent.parentSignatureDataUrl}
+                                  alt="Parent signature"
+                                  className="h-6 w-16 object-contain bg-white rounded border border-[#dbe3f0] shrink-0"
+                                />
+                              </div>
+                              {!linkedConsent.facultyVerified && (
+                                <button
+                                  type="button"
+                                  onClick={() => onVerifyParentConsent(linkedConsent.id)}
+                                  className="text-[11px] font-bold text-[#12805f] dark:text-[#5fe0b6] hover:underline cursor-pointer"
+                                >
+                                  Verify guardian consent →
+                                </button>
+                              )}
+                            </div>
+                          ) : (
+                            <p className="text-[11px] text-amber-700 dark:text-amber-300 font-semibold">
+                              {app.attachedConsentCode || 'No Parent Consent linked'}
+                            </p>
+                          )}
+
+                          {studentConsents.length > 0 && (
+                            <select
+                              value={linkedConsent?.id || app.attachedConsentId || ''}
+                              onChange={(e) => {
+                                const chosen = studentConsents.find((c) => c.id === e.target.value);
+                                onAttachDocsToApplication(app.id, {
+                                  attachedConsentId: chosen?.id || '',
+                                  attachedConsentCode: chosen?.consentCode || '',
+                                });
+                              }}
+                              aria-label="Link Parent Consent Sheet"
+                              className="w-full px-2 py-1 rounded-lg border border-[#dbe3f0] dark:border-[#24324d] bg-white dark:bg-[#0b1120] text-[11px] font-semibold"
+                            >
+                              <option value="">Link consent sheet...</option>
+                              {studentConsents.map((c) => (
+                                <option key={c.id} value={c.id}>
+                                  {c.consentCode} ({c.parentName})
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Faculty Digital Signature Preview */}
+                      {app.facultyApproval?.digitalSignature && (
+                        <div className="p-3 rounded-xl border border-dashed border-emerald-400 dark:border-emerald-700 bg-emerald-50/40 dark:bg-emerald-950/20 flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-[11px] font-bold text-emerald-800 dark:text-emerald-200">
+                              {app.facultyApproval.programClearance} · Signed by{' '}
+                              {app.facultyApproval.digitalSignature.signerName}
+                            </p>
+                            <p className="text-[10px] font-mono text-[#5b6b86] dark:text-[#9fb0cc]">
+                              {app.facultyApproval.digitalSignature.verificationCode} ·{' '}
+                              {formatShortDate(app.facultyApproval.digitalSignature.signedAt)}
+                            </p>
+                            {app.organizerConfirmedAllowed && (
+                              <p className="text-[10px] font-bold text-[#12805f] dark:text-[#5fe0b6] mt-0.5">
+                                Organizer confirmed program entry
+                              </p>
+                            )}
+                          </div>
+                          <img
+                            src={app.facultyApproval.digitalSignature.signatureDataUrl}
+                            alt={`Faculty signature by ${app.facultyApproval.digitalSignature.signerName}`}
+                            className="h-12 w-28 object-contain bg-white rounded-lg border border-[#dbe3f0] px-1 shrink-0"
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 pt-2 border-t border-[#dbe3f0] dark:border-[#24324d]">
+                      <span className="text-[11px] text-[#5b6b86] dark:text-[#9fb0cc]">
+                        Applied {formatShortDate(app.appliedOn)}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        {app.facultyApproval?.digitalSignature && (
+                          <button
+                            type="button"
+                            onClick={() => setPassApp(app)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#dbe3f0] dark:border-[#24324d] hover:border-[#2f5bea] text-xs font-bold cursor-pointer"
+                          >
+                            <Printer className="w-3.5 h-3.5 text-[#2f5bea] dark:text-[#7a9bff]" />
+                            <span>Clearance Pass</span>
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (
+                              (linkedNoc && app.attachedNocId !== linkedNoc.id) ||
+                              (linkedConsent && app.attachedConsentId !== linkedConsent.id)
+                            ) {
+                              onAttachDocsToApplication(app.id, {
+                                attachedNocId: linkedNoc?.id || app.attachedNocId,
+                                attachedNocNumber: linkedNoc?.nocNumber || app.attachedNocNumber,
+                                attachedConsentId: linkedConsent?.id || app.attachedConsentId,
+                                attachedConsentCode:
+                                  linkedConsent?.consentCode || app.attachedConsentCode,
+                              });
+                            }
+                            setSigningTarget({ kind: 'application', req: app });
+                            setRemarks(app.facultyApproval?.digitalSignature?.remarks || '');
+                          }}
+                          className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-[#2f5bea] hover:bg-[#244bc9] text-white text-xs font-bold cursor-pointer"
+                        >
+                          <PenTool className="w-3.5 h-3.5" />
+                          <span>
+                            {app.facultyApproval?.digitalSignature
+                              ? 'Re-sign'
+                              : 'Digitally Sign & Allow'}
+                          </span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* TAB 2: STUDENT ROSTER, EVENT DATES & INTERNSHIP TIMINGS */}
       {activeTab === 'students' && (
         <div className="space-y-4">
@@ -1254,7 +1697,9 @@ export const FacultyWorkspace: React.FC<FacultyWorkspaceProps> = ({
                 <h3 className="text-base font-bold">
                   {signingTarget.kind === 'leave'
                     ? 'Digital Leave Approval & Signature'
-                    : 'Digital NOC Approval & Signature'}
+                    : signingTarget.kind === 'noc'
+                    ? 'Digital NOC Approval & Signature'
+                    : 'Sign Student Application & Program Clearance'}
                 </h3>
               </div>
               <button
@@ -1268,7 +1713,9 @@ export const FacultyWorkspace: React.FC<FacultyWorkspaceProps> = ({
 
             <div className="p-3.5 rounded-xl bg-[#f8fafe] dark:bg-[#0e1626] border border-[#dbe3f0] dark:border-[#24324d] text-xs space-y-1">
               <p className="font-bold text-sm">
-                {signingTarget.req.studentName} ({signingTarget.req.rollNumber})
+                {signingTarget.kind === 'application'
+                  ? `${signingTarget.req.applicantName} (${signingTarget.req.applicantBranch || 'CSE'} · Sem ${signingTarget.req.applicantSemester || 5})`
+                  : `${signingTarget.req.studentName} (${signingTarget.req.rollNumber})`}
               </p>
               {signingTarget.kind === 'leave' ? (
                 <>
@@ -1280,7 +1727,7 @@ export const FacultyWorkspace: React.FC<FacultyWorkspaceProps> = ({
                     {formatShortDate(signingTarget.req.endDate)} · {signingTarget.req.timingNote}
                   </p>
                 </>
-              ) : (
+              ) : signingTarget.kind === 'noc' ? (
                 <>
                   <p className="text-[#5b6b86] dark:text-[#9fb0cc]">
                     {signingTarget.req.nocNumber} · {signingTarget.req.companyName} ({signingTarget.req.roleTitle})
@@ -1288,6 +1735,19 @@ export const FacultyWorkspace: React.FC<FacultyWorkspaceProps> = ({
                   <p className="font-mono text-[#2f5bea] dark:text-[#7a9bff]">
                     {formatShortDate(signingTarget.req.internshipStart)} –{' '}
                     {formatShortDate(signingTarget.req.internshipEnd)} · {signingTarget.req.dailyTiming}
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-[#5b6b86] dark:text-[#9fb0cc]">
+                    {signingTarget.req.company} — {signingTarget.req.roleTitle} ({signingTarget.req.location})
+                  </p>
+                  <p className="font-mono text-[#2f5bea] dark:text-[#7a9bff]">
+                    NOC: {signingTarget.req.attachedNocNumber || 'Auto-matched / Optional'} · Parent Consent:{' '}
+                    {signingTarget.req.attachedConsentCode || 'Auto-matched / Optional'}
+                  </p>
+                  <p className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 pt-0.5">
+                    Approving notifies both Student and Organizer that candidate is Open / Allowed for Program.
                   </p>
                 </>
               )}
@@ -1568,6 +2028,93 @@ export const FacultyWorkspace: React.FC<FacultyWorkspaceProps> = ({
               <button
                 type="button"
                 onClick={() => setPassNoc(null)}
+                className="px-4 py-2 rounded-xl bg-[#2f5bea] text-white text-xs font-bold cursor-pointer"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* VIEW OFFICIAL APPLICATION CLEARANCE PASS MODAL */}
+      {passApp && passApp.facultyApproval?.digitalSignature && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/55 backdrop-blur-[2px]">
+          <div className="w-full max-w-md bg-white dark:bg-[#131d33] border border-[#dbe3f0] dark:border-[#24324d] rounded-2xl p-6 shadow-xl space-y-4">
+            <div className="flex items-center justify-between border-b border-[#dbe3f0] dark:border-[#24324d] pb-3">
+              <div className="flex items-center gap-2">
+                <Award className="w-5 h-5 text-emerald-600" />
+                <div>
+                  <h3 className="text-sm font-extrabold">Official Program Clearance Pass</h3>
+                  <p className="text-[11px] font-mono text-[#5b6b86]">
+                    {passApp.facultyApproval.digitalSignature.verificationCode}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPassApp(null)}
+                className="p-1.5 rounded-lg text-[#5b6b86] cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-1.5 text-xs">
+              <p>
+                <strong>Student:</strong> {passApp.applicantName} ({passApp.applicantEmail})
+              </p>
+              <p>
+                <strong>Company & Role:</strong> {passApp.company} — {passApp.roleTitle}
+              </p>
+              <p>
+                <strong>Attached NOC:</strong>{' '}
+                <span className="font-mono">{passApp.attachedNocNumber || 'Linked in Faculty review'}</span>
+              </p>
+              <p>
+                <strong>Attached Parent Consent:</strong>{' '}
+                <span className="font-mono">{passApp.attachedConsentCode || 'Linked in Faculty review'}</span>
+              </p>
+              <p>
+                <strong>Program Status:</strong>{' '}
+                <span
+                  className={`font-bold ${
+                    passApp.facultyApproval.status === 'Approved'
+                      ? 'text-emerald-600'
+                      : 'text-rose-600'
+                  }`}
+                >
+                  {passApp.facultyApproval.programClearance}
+                </span>
+              </p>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-[#f8fafe] dark:bg-[#0e1626] border border-[#dbe3f0] dark:border-[#24324d] text-center space-y-1.5">
+              <img
+                src={passApp.facultyApproval.digitalSignature.signatureDataUrl}
+                alt="Verified Faculty Signature"
+                className="h-14 mx-auto bg-white rounded-lg border border-[#dbe3f0] px-3"
+              />
+              <p className="text-xs font-bold">
+                {passApp.facultyApproval.digitalSignature.signerName}
+              </p>
+              <p className="text-[11px] text-[#5b6b86]">
+                {passApp.facultyApproval.digitalSignature.signerDesignation}
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-[#dbe3f0] dark:border-[#24324d] text-xs font-bold cursor-pointer"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>Print Pass</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setPassApp(null)}
                 className="px-4 py-2 rounded-xl bg-[#2f5bea] text-white text-xs font-bold cursor-pointer"
               >
                 Done
