@@ -1,0 +1,6 @@
+{
+  "name": "InternHub",
+  "description": "Smart internship discovery, exam-clash matching, Kanban application tracking, company analytics, and personalized AI career guidance for learners and organizers.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Intern Hub</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#f3f6fb;--card:#fff;--ink:#12203a;--mute:#5b6b86;--line:#dbe3f0;--acc:#2f5bea;--acc2:#e8eeff;--ok:#12805f;--okb:#dff5ec;--warn:#9a5b00;--warnb:#fdeccf;--bad:#b42318;--badb:#fde4e1;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0e1626;--card:#16213a;--ink:#e8eefc;--mute:#9fb0cc;--line:#26365a;--acc:#7a9bff;--acc2:#1c2a50;--ok:#5fe0b6;--okb:#12342b;--warn:#f5c26b;--warnb:#3a2a0e;--bad:#ff9a8f;--badb:#3d1a17}}
+:root[data-theme="dark"]{--bg:#0e1626;--card:#16213a;--ink:#e8eefc;--mute:#9fb0cc;--line:#26365a;--acc:#7a9bff;--acc2:#1c2a50;--ok:#5fe0b6;--okb:#12342b;--warn:#f5c26b;--warnb:#3a2a0e;--bad:#ff9a8f;--badb:#3d1a17}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:400 15px/1.5 "Plus Jakarta Sans",system-ui,sans-serif}
+header{display:flex;align-items:center;gap:12px;padding:12px 20px;background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:env(safe-area-inset-top,0px);z-index:5;flex-wrap:wrap}
+.logo{font-weight:800;font-size:20px;letter-spacing:-.02em}.logo i{font-style:normal;color:var(--acc)}
+nav{display:flex;gap:4px;flex-wrap:wrap;flex:1}
+nav button,.btn{font:inherit;font-weight:600;border:1px solid transparent;background:none;color:var(--mute);padding:7px 12px;border-radius:8px;cursor:pointer}
+nav button.on{background:var(--acc2);color:var(--acc)}
+.btn{background:var(--acc);color:#fff}.btn.alt{background:var(--card);color:var(--ink);border-color:var(--line)}.btn.sm{padding:5px 10px;font-size:13px}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+main{max-width:1040px;margin:0 auto;padding:20px}
+h1{font-size:28px;letter-spacing:-.02em;margin:0 0 4px}h2{font-size:18px;margin:24px 0 10px}p.m{color:var(--mute);margin:0 0 16px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}
+.stat{display:flex;gap:14px;flex-wrap:wrap}.stat .card{flex:1;min-width:150px}.stat b{font-size:26px;display:block}
+.tag{display:inline-block;font-size:12px;font-weight:700;padding:2px 8px;border-radius:20px;margin:0 4px 4px 0;background:var(--acc2);color:var(--acc)}
+.tag.ok{background:var(--okb);color:var(--ok)}.tag.warn{background:var(--warnb);color:var(--warn)}.tag.bad{background:var(--badb);color:var(--bad)}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+input,select,textarea{font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);width:100%}
+.f{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}.f label{font-size:13px;font-weight:600;color:var(--mute);display:block;margin-bottom:3px}
+.bar{height:8px;background:var(--line);border-radius:8px;overflow:hidden}.bar span{display:block;height:100%;background:var(--acc)}
+.auth{max-width:420px;margin:8vh auto}
+table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:9px 8px;border-bottom:1px solid var(--line);font-size:14px}
+.wrap{overflow-x:auto}
+.phase{border-left:4px solid var(--acc);padding-left:14px;margin-bottom:18px}.phase ul{margin:6px 0;padding-left:18px}
+.live{color:var(--ok);font-weight:700;font-size:13px}.soon{color:var(--mute);font-size:13px}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+const D=n=>{const d=new Date();d.setDate(d.getDate()+n);return d.toISOString().slice(0,10)};
+const S={user:null,tab:'home',q:'',dom:'',mode:'',max:'',
+ prof:{name:'',branch:'CSE',sem:3,skills:['Python','SQL','Communication'],resume:'',exStart:D(12),exEnd:D(30)},
+ ops:[
+ {id:1,t:'Data Analyst Intern',o:'Northwind Labs',dom:'Data',mode:'Remote',loc:'Remote',pay:15000,dur:8,dl:D(3),s:D(40),e:D(96),skills:['Python','SQL','Excel'],sem:3,own:'Northwind Labs'},
+ {id:2,t:'Frontend Developer Intern',o:'PixelForge',dom:'Software',mode:'On-site',loc:'Hyderabad',pay:20000,dur:10,dl:D(6),s:D(5),e:D(75),skills:['JavaScript','React','CSS'],sem:4,own:'PixelForge'},
+ {id:3,t:'Embedded Systems Intern',o:'Circuitry India',dom:'Electronics',mode:'On-site',loc:'Bengaluru',pay:12000,dur:6,dl:D(14),s:D(45),e:D(87),skills:['C','Digital Logic','Microcontrollers'],sem:3,own:'Circuitry India'},
+ {id:4,t:'Content and Social Intern',o:'Brightline Media',dom:'Marketing',mode:'Remote',loc:'Remote',pay:8000,dur:6,dl:D(1),s:D(2),e:D(44),skills:['Communication','Writing','Canva'],sem:1,own:'Brightline Media'},
+ {id:5,t:'ML Research Intern',o:'Cortex AI',dom:'Data',mode:'Remote',loc:'Remote',pay:25000,dur:12,dl:D(20),s:D(30),e:D(114),skills:['Python','Machine Learning','Statistics'],sem:5,own:'Cortex AI'},
+ {id:6,t:'Backend Developer Intern',o:'Stackwise',dom:'Software',mode:'On-site',loc:'Hyderabad',pay:18000,dur:8,dl:D(9),s:D(60),e:D(116),skills:['Python','SQL','APIs'],sem:3,own:'Stackwise'}],
+ apps:[],nid:7};
+try{const x=localStorage.getItem('ih2');if(x){const o=JSON.parse(x);Object.assign(S,o)}}catch(e){}
+function save(){try{localStorage.setItem('ih2',JSON.stringify({prof:S.prof,ops:S.ops,apps:S.apps,nid:S.nid}))}catch(e){}}
+const $=s=>document.querySelector(s);
+const dd=(a,b)=>Math.round((new Date(b)-new Date(a))/864e5);
+const today=()=>D(0);
+function clash(o){const a=S.prof.exStart,b=S.prof.exEnd;if(!a||!b)return['ok','Fits'];
+ if(o.e<a||o.s>b)return['ok','Fits your exams'];
+ if(o.s<=a&&o.e>=b)return['bad','Clashes with exams'];return['warn','Partly clashes']}
+function elig(o){const sk=S.prof.skills.map(x=>x.toLowerCase());const have=o.skills.filter(k=>sk.includes(k.toLowerCase()));
+ const miss=o.skills.filter(k=>!sk.includes(k.toLowerCase()));const pct=Math.round(have.length/o.skills.length*100);
+ return{pct,miss,ok:S.prof.sem>=o.sem}}
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function applied(id){return S.apps.find(a=>a.op===id&&a.who===S.user.email)}
+function apply(id){if(applied(id))return;S.apps.push({op:id,who:S.user.email,name:S.prof.name||S.user.name,st:'Applied',on:today()});save();render()}
+function setSt(i,v){S.apps[i].st=v;save();render()}
+function go(t){S.tab=t;render();scrollTo(0,0)}
+function card(o){const[c,l]=clash(o),e=elig(o),a=applied(o.id),left=dd(today(),o.dl);
+ return`<div class="card"><b>${esc(o.t)}</b><div class="m" style="color:var(--mute)">${esc(o.o)} · ${esc(o.loc)}</div>
+ <div style="margin:8px 0"><span class="tag ${c}">${l}</span><span class="tag">${o.mode}</span><span class="tag">${o.dur} weeks</span><span class="tag">₹${o.pay.toLocaleString('en-IN')}/mo</span></div>
+ <div class="row" style="justify-content:space-between;font-size:13px;color:var(--mute)"><span>Skill match ${e.pct}%</span><span>${left<0?'Closed':left+' days left'}</span></div>
+ <div class="bar" style="margin:4px 0 8px"><span style="width:${e.pct}%"></span></div>
+ ${e.ok?'':`<div class="tag bad">Needs semester ${o.sem}+</div>`}
+ ${a?`<span class="tag ok">${a.st}</span>`:`<button class="btn sm" onclick="apply(${o.id})" ${e.ok&&left>=0?'':'disabled style="opacity:.5"'}>Apply with saved resume</button>`}</div>`}
+function filtered(){return S.ops.filter(o=>(!S.q||(o.t+o.o+o.skills.join()).toLowerCase().includes(S.q.toLowerCase()))&&(!S.dom||o.dom===S.dom)&&(!S.mode||o.mode===S.mode)&&(!S.max||o.pay>=+S.max))}
+const V={};
+V.home=()=>{const m=S.apps.filter(a=>a.who===S.user.email);
+ const rec=S.ops.map(o=>({o,e:elig(o)})).filter(x=>x.e.ok&&!applied(x.o.id)&&dd(today(),x.o.dl)>=0&&clash(x.o)[0]!=='bad').sort((a,b)=>b.e.pct-a.e.pct).slice(0,3);
+ const soon=S.ops.filter(o=>{const d=dd(today(),o.dl);return d>=0&&d<=7});
+ return`<h1>Hi ${esc(S.prof.name||S.user.name)}</h1><p class="m">Internships that fit your skills and your exam dates.</p>
+ <div class="stat"><div class="card"><b>${m.length}</b>Applications</div><div class="card"><b>${m.filter(a=>a.st==='Shortlisted'||a.st==='Selected').length}</b>Shortlisted or selected</div><div class="card"><b>${soon.length}</b>Deadlines this week</div></div>
+ <h2>Recommended for you</h2><div class="grid">${rec.map(x=>card(x.o)).join('')||'<p class="m">Add skills in Profile to get recommendations.</p>'}</div>
+ <h2>Deadline reminders</h2><div class="card">${soon.map(o=>{const d=dd(today(),o.dl);return`<div class="row" style="justify-content:space-between;padding:4px 0"><span>${esc(o.t)} · ${esc(o.o)}</span><span class="tag ${d<=1?'bad':d<=3?'warn':''}">${d===0?'Due today':d+' day'+(d>1?'s':'')+' left'}</span></div>`}).join('')||'No deadlines in the next 7 days.'}</div>`};
+V.find=()=>`<h1>Find internships</h1><p class="m">Search, filter and see how each one fits your exams.</p>
+ <div class="f card"><div><label>Search</label><input value="${esc(S.q)}" oninput="S.q=this.value;list()" placeholder="Role, company or skill"></div>
+ <div><label>Domain</label><select onchange="S.dom=this.value;list()"><option value="">All</option>${['Software','Data','Electronics','Marketing'].map(d=>`<option ${S.dom===d?'selected':''}>${d}</option>`).join('')}</select></div>
+ <div><label>Mode</label><select onchange="S.mode=this.value;list()"><option value="">Any</option><option ${S.mode==='Remote'?'selected':''}>Remote</option><option ${S.mode==='On-site'?'selected':''}>On-site</option></select></div>
+ <div><label>Min stipend (₹/month)</label><input type="number" value="${S.max}" oninput="S.max=this.value;list()" placeholder="0"></div></div>
+ <h2>Results</h2><div class="grid" id="res">${filtered().map(card).join('')}</div>`;
+function list(){$('#res').innerHTML=filtered().map(card).join('')||'<p class="m">No match. Clear a filter to see more.</p>'}
+V.apps=()=>{const m=S.apps.map((a,i)=>({a,i})).filter(x=>x.a.who===S.user.email);
+ return`<h1>My applications</h1><p class="m">One list for every application.</p><div class="card wrap"><table><tr><th>Role</th><th>Company</th><th>Applied</th><th>Status</th></tr>
+ ${m.map(x=>{const o=S.ops.find(o=>o.id===x.a.op);return`<tr><td>${esc(o.t)}</td><td>${esc(o.o)}</td><td>${x.a.on}</td><td><span class="tag ${x.a.st==='Rejected'?'bad':x.a.st==='Applied'?'':'ok'}">${x.a.st}</span></td></tr>`}).join('')||'<tr><td colspan="4">Nothing yet. Open Find and apply.</td></tr>'}</table></div>`};
+V.skills=()=>{const gaps={};S.ops.forEach(o=>elig(o).miss.forEach(k=>gaps[k]=(gaps[k]||0)+1));
+ const g=Object.entries(gaps).sort((a,b)=>b[1]-a[1]);
+ return`<h1>Skill gap analyzer</h1><p class="m">Skills that open the most internships you are missing today.</p>
+ <div class="card">${g.map(([k,n])=>`<div class="row" style="justify-content:space-between;padding:5px 0"><span><b>${esc(k)}</b></span><span class="tag warn">Asked in ${n} of ${S.ops.length} internships</span></div>`).join('')||'No gaps. You match every listing.'}</div>
+ <h2>Your skills</h2><div class="card">${S.prof.skills.map(k=>`<span class="tag ok">${esc(k)}</span>`).join('')}</div>`};
+V.profile=()=>{const p=S.prof;return`<h1>Profile and resume</h1><p class="m">Fill this once. Every application reuses it.</p>
+ <div class="card"><div class="f"><div><label>Full name</label><input id="pn" value="${esc(p.name)}"></div><div><label>Branch</label><input id="pb" value="${esc(p.branch)}"></div>
+ <div><label>Semester</label><input id="ps" type="number" min="1" max="8" value="${p.sem}"></div><div><label>Skills (comma separated)</label><input id="pk" value="${esc(p.skills.join(', '))}"></div>
+ <div><label>Exams start</label><input id="pe1" type="date" value="${p.exStart}"></div><div><label>Exams end</label><input id="pe2" type="date" value="${p.exEnd}"></div></div>
+ <div style="margin:12px 0"><label style="font-size:13px;font-weight:600;color:var(--mute)">Resume (PDF or Word)</label><input id="pr" type="file" accept=".pdf,.doc,.docx" onchange="S.prof.resume=this.files[0]?this.files[0].name:'';save();render()">
+ ${p.resume?`<div class="tag ok" style="margin-top:6px">Saved: ${esc(p.resume)}</div>`:''}</div>
+ <button class="btn" onclick="saveProf()">Save profile</button></div>`};
+function saveProf(){const p=S.prof;p.name=$('#pn').value;p.branch=$('#pb').value;p.sem=+$('#ps').value||1;p.skills=$('#pk').value.split(',').map(x=>x.trim()).filter(Boolean);p.exStart=$('#pe1').value;p.exEnd=$('#pe2').value;save();go('home')}
+V.post=()=>`<h1>Post an opportunity</h1><p class="m">Learners see it right away in Find.</p><div class="card"><div class="f">
+ <div><label>Title</label><input id="nt"></div><div><label>Domain</label><select id="nd"><option>Software</option><option>Data</option><option>Electronics</option><option>Marketing</option></select></div>
+ <div><label>Mode</label><select id="nm"><option>Remote</option><option>On-site</option></select></div><div><label>Location</label><input id="nl" value="Remote"></div>
+ <div><label>Stipend (₹/month)</label><input id="np" type="number" value="10000"></div><div><label>Required skills (comma separated)</label><input id="nk"></div>
+ <div><label>Min semester</label><input id="ns" type="number" value="1"></div><div><label>Apply by</label><input id="ndl" type="date" value="${D(14)}"></div>
+ <div><label>Starts</label><input id="nst" type="date" value="${D(30)}"></div><div><label>Ends</label><input id="nen" type="date" value="${D(90)}"></div></div>
+ <p><button class="btn" onclick="postOp()">Publish opportunity</button></p></div>`;
+function postOp(){const t=$('#nt').value.trim();if(!t){$('#nt').focus();return}
+ const s=$('#nst').value,e=$('#nen').value;S.ops.unshift({id:S.nid++,t,o:S.user.name,dom:$('#nd').value,mode:$('#nm').value,loc:$('#nl').value,pay:+$('#np').value||0,dur:Math.max(1,Math.round(dd(s,e)/7)),dl:$('#ndl').value,s,e,skills:$('#nk').value.split(',').map(x=>x.trim()).filter(Boolean),sem:+$('#ns').value||1,own:S.user.name});save();go('mine')}
+V.mine=()=>{const mine=S.ops.filter(o=>o.own===S.user.name);return`<h1>Your opportunities</h1><p class="m">Review applicants and update their status.</p>
+ ${mine.map(o=>{const ap=S.apps.map((a,i)=>({a,i})).filter(x=>x.a.op===o.id);return`<div class="card" style="margin-bottom:12px"><b>${esc(o.t)}</b> <span class="tag">${ap.length} applicants</span>
+ <div class="wrap">${ap.length?`<table>${ap.map(x=>`<tr><td>${esc(x.a.name)}</td><td><span class="tag">${x.a.st}</span></td><td><button class="btn alt sm" onclick="setSt(${x.i},'Shortlisted')">Shortlist</button> <button class="btn alt sm" onclick="setSt(${x.i},'Selected')">Select</button> <button class="btn alt sm" onclick="setSt(${x.i},'Rejected')">Reject</button></td></tr>`).join('')}</table>`:'<p class="m">No applicants yet.</p>'}</div></div>`}).join('')||'<p class="m">Post your first opportunity.</p>'}`};
+V.orgdash=()=>{const mine=S.ops.filter(o=>o.own===S.user.name);const n=S.apps.filter(a=>mine.some(o=>o.id===a.op)).length;
+ return`<h1>Welcome, ${esc(S.user.name)}</h1><p class="m">Your hiring at a glance.</p><div class="stat"><div class="card"><b>${mine.length}</b>Open postings</div><div class="card"><b>${n}</b>Applications received</div></div>
+ <p><button class="btn" onclick="go('post')">Post an opportunity</button></p>`};
+const R=[['Phase 1 · MVP','Build the foundation',[['Login and registration',1],['Learner and organizer dashboards',1],['Student profiles',1],['Opportunity posting',1],['Search and filters',1],['Apply and application tracking',1]]],
+['Phase 2 · Intelligence','Make it smarter',[['Eligibility matching',1],['Recommendation engine',1],['Skill gap analyzer',1],['Deadline reminders',1],['Resume management',1]]],
+['Phase 3 · Ecosystem','Make it different',[['Global opportunity hub'],['Hackathon team formation'],['Student skill graph'],['Digital achievement portfolio'],['Verified organizer network']]],
+['Phase 4 · Growth','Scale the platform',[['AI career assistant'],['University partnerships'],['International organization partnerships'],['Advanced recruiter analytics']]]];
+V.road=()=>`<h1>Roadmap</h1><p class="m">Phases 1 and 2 work in this prototype. Phases 3 and 4 are next.</p>${R.map(p=>`<div class="phase"><b>${p[0]}</b> <span class="soon">${p[1]}</span><ul>${p[2].map(f=>`<li>${f[0]} ${f[1]?'<span class="live">Working</span>':'<span class="soon">Planned</span>'}</li>`).join('')}</ul></div>`).join('')}`;
+function auth(){return`<div class="auth card"><div class="logo" style="font-size:26px">Intern<i>Hub</i></div><p class="m">Find internships that fit your exams.</p>
+ <div class="f" style="grid-template-columns:1fr"><div><label>Name or organization</label><input id="an"></div><div><label>Email</label><input id="ae" type="email"></div><div><label>I am a</label><select id="ar"><option value="learner">Learner</option><option value="organizer">Organizer</option></select></div></div>
+ <p><button class="btn" style="width:100%" onclick="login()">Sign in or register</button></p><p class="m" style="font-size:12px">Prototype: no password, data stays in your browser.</p></div>`}
+function login(){const n=$('#an').value.trim(),e=$('#ae').value.trim();if(!n||!e){(n?$('#ae'):$('#an')).focus();return}
+ S.user={name:n,email:e,role:$('#ar').value};if(S.user.role==='learner'&&!S.prof.name)S.prof.name=n;S.tab=S.user.role==='learner'?'home':'orgdash';render()}
+function render(){const a=$('#app');if(!S.user){a.innerHTML=auth();return}
+ const L=S.user.role==='learner',T=L?[['home','Home'],['find','Find'],['apps','Applications'],['skills','Skills'],['profile','Profile'],['road','Roadmap']]:[['orgdash','Dashboard'],['post','Post'],['mine','Applicants'],['road','Roadmap']];
+ a.innerHTML=`<header><div class="logo">Intern<i>Hub</i></div><nav>${T.map(t=>`<button class="${S.tab===t[0]?'on':''}" onclick="go('${t[0]}')">${t[1]}</button>`).join('')}</nav><button class="btn alt sm" onclick="S.user=null;render()">Sign out</button></header><main>${V[S.tab]()}</main>`}
+render();
+</script>
+</body>
+</html>
