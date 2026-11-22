@@ -16,6 +16,7 @@
     "@firebase/eslint-plugin-security-rules": "^0.0.2",
     "@google/genai": "^3.6.1",
     "@tailwindcss/vite": "^4.3.3",
+    "@vercel/speed-insights": "^2.1.0",
     "@vitejs/plugin-react": "^6.1.1",
     "dotenv": "^17.2.3",
     "eslint": "^10.15.0",
